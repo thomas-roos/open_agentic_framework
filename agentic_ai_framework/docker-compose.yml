@@ -70,10 +70,10 @@ services:
         done &&
         echo 'Ollama is ready! Starting model download...' &&
         echo 'Downloading llama3 model (this may take several minutes)...' &&
-        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"llama3\"}' -H 'Content-Type: application/json' &&
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"llama3.2:1b\"}' -H 'Content-Type: application/json' &&
         echo 'Model download completed successfully!' ||
-        (echo 'llama3 download failed, trying llama3.2:1b...' &&
-         curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"llama3.2:1b\"}' -H 'Content-Type: application/json' &&
+        (echo 'llama3 download failed, trying deepseek-r1:1.5b...' &&
+         curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"deepseek-r1:1.5b\"}' -H 'Content-Type: application/json' &&
          echo 'Fallback model downloaded successfully!') ||
         echo 'Model download failed - you may need to download manually'
       "
