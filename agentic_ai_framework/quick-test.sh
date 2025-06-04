@@ -36,7 +36,7 @@ test_model() {
       }')
     
     # Enhanced tool usage detection
-	echo $response
+	echo "RESPONSE:" $response
     echo "$response" | jq -r '.result' 2>/dev/null | head -c 200
     echo ""
     
