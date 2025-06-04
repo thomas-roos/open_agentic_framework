@@ -1,7 +1,4 @@
 #!/bin/bash
-echo "Downloading SmolLM 135M..."
-docker exec -it agentic-ai-ollama ollama pull smollm:135m
-
 echo "Downloading TinyLlama 1.1B..."
 docker exec -it agentic-ai-ollama ollama pull tinyllama:1.1b
 

@@ -6,7 +6,7 @@ set -e
 
 # Configuration
 API_BASE="http://localhost:8000"
-MODELS=("smollm:135m" "tinyllama:1.1b" "granite3.2:2b" "deepseek-coder:1.3b" "deepseek-r1:1.5b")
+MODELS=("tinyllama:1.1b" "granite3.2:2b" "deepseek-coder:1.3b" "deepseek-r1:1.5b")
 
 # Colors for output
 RED='\033[0;31m'
@@ -262,9 +262,6 @@ display_results_summary() {
     while IFS=',' read -r model success total rate; do
         if [ "$model" != "Model" ]; then  # Skip header
             case $model in
-                "smollm:135m")
-                    printf "%-20s | %-15s | %-10s | %-12s\\n" "$model" "$rate%" "92MB" "Ultra-light"
-                    ;;
                 "tinyllama:1.1b")
                     printf "%-20s | %-15s | %-10s | %-12s\\n" "$model" "$rate%" "637MB" "General use"
                     ;;

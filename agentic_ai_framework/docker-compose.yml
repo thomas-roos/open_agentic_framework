@@ -71,28 +71,23 @@ services:
         
         echo '=== Starting model downloads ===' &&
         echo 'This will download 5 small models (total ~3.2GB)' &&
-        
-        # Model 1: SmolLM 135M (~92MB) - Smallest
-        echo 'Downloading SmolLM 135M (92MB)...' &&
-        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"smollm:135m\"}' -H 'Content-Type: application/json' &&
-        echo '✓ SmolLM 135M downloaded' &&
-        
-        # Model 2: TinyLlama 1.1B (~637MB) - Fast and efficient
+
+        # Model 1: TinyLlama 1.1B (~637MB) - Fast and efficient
         echo 'Downloading TinyLlama 1.1B (637MB)...' &&
         curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"tinyllama:1.1b\"}' -H 'Content-Type: application/json' &&
         echo '✓ TinyLlama downloaded' &&
         
-        # Model 3: Granite 3.2 2B (~700MB) - IBM's efficient model
+        # Model 2: Granite 3.2 2B (~700MB) - IBM's efficient model
         echo 'Downloading Granite 3.2 2B (700MB)...' &&
         curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"granite3.2:2b\"}' -H 'Content-Type: application/json' &&
         echo '✓ Granite 3.2 downloaded' &&
         
-        # Model 4: DeepSeek-Coder 1.3B (~776MB) - Code specialist
+        # Model 3: DeepSeek-Coder 1.3B (~776MB) - Code specialist
         echo 'Downloading DeepSeek-Coder 1.3B (776MB)...' &&
         curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"deepseek-coder:1.3b\"}' -H 'Content-Type: application/json' &&
         echo '✓ DeepSeek-Coder downloaded' &&
         
-        # Model 5: DeepSeek-R1 1.5B (~1.1GB) - Reasoning specialist
+        # Model 4: DeepSeek-R1 1.5B (~1.1GB) - Reasoning specialist
         echo 'Downloading DeepSeek-R1 1.5B (1.1GB)...' &&
         curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"deepseek-r1:1.5b\"}' -H 'Content-Type: application/json' &&
         echo '✓ DeepSeek-R1 downloaded' &&

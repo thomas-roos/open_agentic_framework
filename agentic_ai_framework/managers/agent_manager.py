@@ -189,37 +189,32 @@ class AgentManager:
                 else:
                     url = "https://google.com"
                 
-                return f"""The task requires checking a website. You must use the website_monitor tool.
+                return f"""You MUST use the website_monitor tool to complete this task.
 
-Please respond with exactly this format:
-TOOL_CALL: website_monitor(url={url}, expected_status=200)
-
-Do not write code or explanations, just the tool call."""
+Respond with EXACTLY this format (no extra text):
+TOOL_CALL: website_monitor(url={url}, expected_status=200)"""
         
         elif any(keyword in task.lower() for keyword in ["api", "request", "get", "post"]):
             if "http_client" in available_tools:
                 url_match = re.search(r'https?://[^\s]+', task)
                 url = url_match.group(0) if url_match else "https://httpbin.org/get"
                 
-                return f"""The task requires making an HTTP request. You must use the http_client tool.
+                return f"""You MUST use the http_client tool to complete this task.
 
-Please respond with exactly this format:
-TOOL_CALL: http_client(url={url}, method=GET)
-
-Do not write code or explanations, just the tool call."""
+Respond with EXACTLY this format (no extra text):
+TOOL_CALL: http_client(url={url}, method=GET)"""
         
         # Generic tool instruction
         tool_list = ", ".join(available_tools)
-        return f"""You have access to these tools: {tool_list}
+        return f"""You have these tools available: {tool_list}
 
-The current task requires using one of these tools. Please use the TOOL_CALL format:
+You MUST use one of these tools. Respond with EXACTLY this format:
 TOOL_CALL: tool_name(parameter=value)
 
-Examples:
-- TOOL_CALL: website_monitor(url=https://example.com, expected_status=200)
-- TOOL_CALL: http_client(url=https://api.example.com, method=GET)
+For website checking: TOOL_CALL: website_monitor(url=https://example.com, expected_status=200)
+For HTTP requests: TOOL_CALL: http_client(url=https://api.example.com, method=GET)
 
-Please respond with the appropriate tool call for the task: "{task}" """
+Use the appropriate tool for: "{task}" """
     
     def _create_minimal_tool_call(self, agent: Dict[str, Any], task: str) -> Optional[Dict[str, Any]]:
         """
@@ -325,74 +320,132 @@ Never write code. Use tools when available and appropriate."""
         return response
     
     def _parse_tool_calls_aggressive(self, response: str) -> List[Dict[str, Any]]:
-        """Aggressive tool call parsing with multiple patterns"""
+        """Aggressive tool call parsing with multiple patterns and duplicate prevention"""
         tool_calls = []
         
         logger.debug(f"Parsing response for tool calls: {response[:200]}...")
         
-        # Multiple patterns to catch various formats
-        patterns = [
-            r'TOOL_CALL:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)',
-            r'TOOL_CALL\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)',
-            r'tool_call:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)',
-            r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*url\s*=\s*([^,)]+)(?:,\s*expected_status\s*=\s*(\d+))?\s*\)',
-        ]
+        # Primary pattern - most reliable
+        primary_pattern = r'TOOL_CALL:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)'
+        matches = re.findall(primary_pattern, response, re.IGNORECASE | re.DOTALL)
         
-        for pattern in patterns:
-            matches = re.findall(pattern, response, re.IGNORECASE | re.DOTALL)
+        for match in matches:
+            try:
+                tool_name, params_str = match
+                tool_name = tool_name.strip()
+                
+                # Skip if tool name is invalid
+                if tool_name.lower() in ['tool_name', 'tool', 'name']:
+                    continue
+                
+                # Validate tool exists
+                if not self.memory_manager.get_tool(tool_name):
+                    logger.warning(f"Tool {tool_name} not found, skipping")
+                    continue
+                
+                parameters = self._parse_parameters_simple(params_str)
+                
+                # Validate URL parameter for website_monitor
+                if tool_name == "website_monitor" and "url" in parameters:
+                    url = str(parameters["url"]).strip().strip('"\'')
+                    
+                    # Skip if URL is actually the tool name (parsing error)
+                    if url == "website_monitor" or url == tool_name:
+                        logger.warning(f"Skipping invalid URL parameter: {url}")
+                        continue
+                    
+                    # Fix URL format
+                    if not url.startswith(('http://', 'https://')):
+                        if url.startswith('www.'):
+                            url = f"https://{url}"
+                        elif '.' in url and not url.startswith(('ftp://', 'file://')):
+                            url = f"https://{url}"
+                    
+                    parameters["url"] = url
+                
+                # Create tool call
+                tool_call = {
+                    "tool_name": tool_name,
+                    "parameters": parameters
+                }
+                
+                # Strict duplicate checking - exact match on tool name and parameters
+                is_duplicate = False
+                for existing_call in tool_calls:
+                    if (existing_call["tool_name"] == tool_name and 
+                        existing_call["parameters"] == parameters):
+                        is_duplicate = True
+                        logger.debug(f"Skipping duplicate tool call: {tool_name}")
+                        break
+                
+                if not is_duplicate:
+                    tool_calls.append(tool_call)
+                    logger.info(f"Parsed tool call: {tool_name} with {parameters}")
             
-            for match in matches:
-                try:
-                    if len(match) == 2:
+            except Exception as e:
+                logger.error(f"Failed to parse tool call from match {match}: {e}")
+                continue
+        
+        # If no matches found with primary pattern, try fallback patterns
+        if not tool_calls:
+            logger.debug("No matches with primary pattern, trying fallback patterns")
+            
+            fallback_patterns = [
+                r'TOOL_CALL\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)',
+                r'tool_call:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*?)\)',
+            ]
+            
+            for pattern in fallback_patterns:
+                matches = re.findall(pattern, response, re.IGNORECASE | re.DOTALL)
+                for match in matches:
+                    try:
                         tool_name, params_str = match
                         tool_name = tool_name.strip()
                         
-                        # Validate tool exists
                         if not self.memory_manager.get_tool(tool_name):
                             continue
                         
                         parameters = self._parse_parameters_simple(params_str)
                         
-                    elif len(match) >= 2:
-                        # Handle URL-specific parsing
-                        if 'website_monitor' in response.lower():
-                            tool_name = "website_monitor"
-                            url = match[0] if match[0] else match[1]
-                            status = match[2] if len(match) > 2 and match[2] else "200"
+                        # Same validation as primary pattern
+                        if tool_name == "website_monitor" and "url" in parameters:
+                            url = str(parameters["url"]).strip().strip('"\'')
+                            if url == "website_monitor" or url == tool_name:
+                                continue
                             
-                            parameters = {
-                                "url": url.strip().strip('"\''),
-                                "expected_status": int(status) if status.isdigit() else 200
-                            }
-                        else:
-                            continue
-                    else:
+                            if not url.startswith(('http://', 'https://')):
+                                if url.startswith('www.'):
+                                    url = f"https://{url}"
+                                elif '.' in url:
+                                    url = f"https://{url}"
+                            parameters["url"] = url
+                        
+                        tool_call = {
+                            "tool_name": tool_name,
+                            "parameters": parameters
+                        }
+                        
+                        # Check for duplicates
+                        is_duplicate = False
+                        for existing_call in tool_calls:
+                            if (existing_call["tool_name"] == tool_name and 
+                                existing_call["parameters"] == parameters):
+                                is_duplicate = True
+                                break
+                        
+                        if not is_duplicate:
+                            tool_calls.append(tool_call)
+                            logger.info(f"Parsed tool call (fallback): {tool_name} with {parameters}")
+                            break  # Stop at first successful fallback parse
+                    
+                    except Exception as e:
+                        logger.error(f"Failed to parse fallback tool call: {e}")
                         continue
-                    
-                    # Clean up URL parameter
-                    if "url" in parameters:
-                        url = str(parameters["url"]).strip().strip('"\'')
-                        if not url.startswith(('http://', 'https://')):
-                            if url.startswith('www.'):
-                                url = f"https://{url}"
-                            elif '.' in url:
-                                url = f"https://{url}"
-                        parameters["url"] = url
-                    
-                    tool_call = {
-                        "tool_name": tool_name,
-                        "parameters": parameters
-                    }
-                    
-                    # Check for duplicates
-                    if not any(tc["tool_name"] == tool_name and tc["parameters"] == parameters for tc in tool_calls):
-                        tool_calls.append(tool_call)
-                        logger.info(f"Parsed tool call: {tool_name} with {parameters}")
                 
-                except Exception as e:
-                    logger.error(f"Failed to parse tool call from match {match}: {e}")
-                    continue
+                if tool_calls:  # Stop if we found something
+                    break
         
+        logger.info(f"Total tool calls parsed: {len(tool_calls)}")
         return tool_calls
     
     def _parse_parameters_simple(self, params_str: str) -> Dict[str, Any]:
