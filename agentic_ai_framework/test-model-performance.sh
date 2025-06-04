@@ -6,7 +6,7 @@ set -e
 
 # Configuration
 API_BASE="http://localhost:8000"
-MODELS=("tinyllama:1.1b" "granite3.2:2b" "deepseek-coder:1.3b" "deepseek-r1:1.5b")
+MODELS=("tinyllama:1.1b" "granite3.2:2b" "deepseek-r1:1.5b")
 
 # Colors for output
 RED='\033[0;31m'
@@ -267,9 +267,6 @@ display_results_summary() {
                     ;;
                 "granite3.2:2b")
                     printf "%-20s | %-15s | %-10s | %-12s\\n" "$model" "$rate%" "700MB" "IBM efficient"
-                    ;;
-                "deepseek-coder:1.3b")
-                    printf "%-20s | %-15s | %-10s | %-12s\\n" "$model" "$rate%" "776MB" "Code tasks"
                     ;;
                 "deepseek-r1:1.5b")
                     printf "%-20s | %-15s | %-10s | %-12s\\n" "$model" "$rate%" "1.1GB" "Best reasoning"

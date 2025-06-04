@@ -166,7 +166,6 @@ nano .env
 # Change DEFAULT_MODEL to any downloaded model:
 # - tinyllama:1.1b  
 # - granite3.2:2b
-# - deepseek-coder:1.3b
 # - deepseek-r1:1.5b
 
 # Restart

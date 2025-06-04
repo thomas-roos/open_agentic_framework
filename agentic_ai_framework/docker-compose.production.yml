@@ -96,12 +96,7 @@ services:
         curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"granite3.2:2b\"}' -H 'Content-Type: application/json' &&
         echo '✓ Granite 3.2 downloaded' &&
         
-        # Model 3: DeepSeek-Coder 1.3B (~776MB) - Code specialist
-        echo 'Downloading DeepSeek-Coder 1.3B (776MB)...' &&
-        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"deepseek-coder:1.3b\"}' -H 'Content-Type: application/json' &&
-        echo '✓ DeepSeek-Coder downloaded' &&
-        
-        # Model 4: DeepSeek-R1 1.5B (~1.1GB) - Reasoning specialist
+        # Model 3: DeepSeek-R1 1.5B (~1.1GB) - Reasoning specialist
         echo 'Downloading DeepSeek-R1 1.5B (1.1GB)...' &&
         curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"deepseek-r1:1.5b\"}' -H 'Content-Type: application/json' &&
         echo '✓ DeepSeek-R1 downloaded' &&

@@ -73,7 +73,6 @@ echo ""
 # Test all models
 test_model "tinyllama:1.1b"
 test_model "granite3.2:2b"
-test_model "deepseek-coder:1.3b"
 test_model "deepseek-r1:1.5b"
 
 echo ""
