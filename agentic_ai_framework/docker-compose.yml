@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # Agentic AI Framework Application
+  agentic-ai:
+    build: .
+    container_name: agentic-ai-framework
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - DEFAULT_MODEL=llama3
+      - DATABASE_PATH=/app/data/agentic_ai.db
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - MAX_AGENT_ITERATIONS=10
+      - SCHEDULER_INTERVAL=60
+      - TOOLS_DIRECTORY=tools
+    volumes:
+      - ./data:/app/data
+      - ./tools:/app/tools
+      - ./logs:/app/logs
+    depends_on:
+      - ollama
+      - model-setup
+    restart: unless-stopped
+    networks:
+      - agentic-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Ollama LLM Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: agentic-ai-ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - agentic-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Model Setup - Downloads models automatically using alpine + curl
+  model-setup:
+    image: alpine/curl:latest
+    container_name: agentic-ai-model-setup
+    depends_on:
+      - ollama
+    networks:
+      - agentic-network
+    command: >
+      sh -c "
+        echo 'Waiting for Ollama to be ready...' &&
+        while ! curl -f http://ollama:11434/api/tags; do
+          echo 'Ollama not ready, waiting 5 seconds...'
+          sleep 5
+        done &&
+        echo 'Ollama is ready! Starting model download...' &&
+        echo 'Downloading llama3 model (this may take several minutes)...' &&
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"llama3\"}' -H 'Content-Type: application/json' &&
+        echo 'Model download completed successfully!' ||
+        (echo 'llama3 download failed, trying llama3.2:1b...' &&
+         curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"llama3.2:1b\"}' -H 'Content-Type: application/json' &&
+         echo 'Fallback model downloaded successfully!') ||
+        echo 'Model download failed - you may need to download manually'
+      "
+    restart: "no"
+
+volumes:
+  ollama_data:
+    driver: local
+
+networks:
+  agentic-network:
+    driver: bridge
