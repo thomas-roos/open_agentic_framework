@@ -14,11 +14,11 @@ class Config:
     def __init__(self):
         """Initialize configuration with environment variables or defaults"""
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
-        self.default_model = os.getenv("DEFAULT_MODEL", "llama3")
+        self.default_model = os.getenv("DEFAULT_MODEL", "smollm:135m")
         self.database_path = os.getenv("DATABASE_PATH", "agentic_ai.db")
         self.api_host = os.getenv("API_HOST", "0.0.0.0")
         self.api_port = int(os.getenv("API_PORT", "8000"))
-        self.max_agent_iterations = int(os.getenv("MAX_AGENT_ITERATIONS", "10"))
+        self.max_agent_iterations = int(os.getenv("MAX_AGENT_ITERATIONS", "3"))
         self.scheduler_interval = int(os.getenv("SCHEDULER_INTERVAL", "60"))
         self.tools_directory = os.getenv("TOOLS_DIRECTORY", "tools")
     

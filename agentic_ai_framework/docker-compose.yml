@@ -69,12 +69,20 @@ services:
           sleep 5
         done &&
         echo 'Ollama is ready! Starting model download...' &&
-        echo 'Downloading llama3 model (this may take several minutes)...' &&
-        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"llama3.2:1b\"}' -H 'Content-Type: application/json' &&
-        echo 'Model download completed successfully!' ||
-        (echo 'llama3 download failed, trying deepseek-r1:1.5b...' &&
-         curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"deepseek-r1:1.5b\"}' -H 'Content-Type: application/json' &&
-         echo 'Fallback model downloaded successfully!') ||
+        # Try smollm:135m first (smallest - 92MB)
+        echo 'Attempting smollm:135m (92MB)...' &&
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"smollm:135m\"}' -H 'Content-Type: application/json' &&
+        echo 'smollm:135m downloaded successfully!' ||
+      
+        # Fallback to smollm:360m (229MB)
+        (echo 'smollm:135m failed, trying smollm:360m (229MB)...' &&
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"smollm:360m\"}' -H 'Content-Type: application/json' &&
+        echo 'smollm:360m downloaded successfully!') ||
+        
+        # Fallback to tinyllama (637MB)
+        (echo 'smollm failed, trying tinyllama:1.1b (637MB)...' &&
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"tinyllama:1.1b\"}' -H 'Content-Type: application/json' &&
+        echo 'tinyllama downloaded successfully!') ||
         echo 'Model download failed - you may need to download manually'
       "
     restart: "no"
