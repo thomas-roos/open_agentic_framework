@@ -65,25 +65,42 @@ services:
       sh -c "
         echo 'Waiting for Ollama to be ready...' &&
         while ! curl -f http://ollama:11434/api/tags; do
-          echo 'Ollama not ready, waiting 5 seconds...'
-          sleep 5
+          echo 'Ollama not ready, waiting 10 seconds...'
+          sleep 10
         done &&
-        echo 'Ollama is ready! Starting model download...' &&
-        # Try smollm:135m first (smallest - 92MB)
-        echo 'Attempting smollm:135m (92MB)...' &&
-        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"smollm:135m\"}' -H 'Content-Type: application/json' &&
-        echo 'smollm:135m downloaded successfully!' ||
-      
-        # Fallback to smollm:360m (229MB)
-        (echo 'smollm:135m failed, trying smollm:360m (229MB)...' &&
-        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"smollm:360m\"}' -H 'Content-Type: application/json' &&
-        echo 'smollm:360m downloaded successfully!') ||
         
-        # Fallback to tinyllama (637MB)
-        (echo 'smollm failed, trying tinyllama:1.1b (637MB)...' &&
+        echo '=== Starting model downloads ===' &&
+        echo 'This will download 5 small models (total ~3.2GB)' &&
+        
+        # Model 1: SmolLM 135M (~92MB) - Smallest
+        echo 'Downloading SmolLM 135M (92MB)...' &&
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"smollm:135m\"}' -H 'Content-Type: application/json' &&
+        echo '✓ SmolLM 135M downloaded' &&
+        
+        # Model 2: TinyLlama 1.1B (~637MB) - Fast and efficient
+        echo 'Downloading TinyLlama 1.1B (637MB)...' &&
         curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"tinyllama:1.1b\"}' -H 'Content-Type: application/json' &&
-        echo 'tinyllama downloaded successfully!') ||
-        echo 'Model download failed - you may need to download manually'
+        echo '✓ TinyLlama downloaded' &&
+        
+        # Model 3: Granite 3.2 2B (~700MB) - IBM's efficient model
+        echo 'Downloading Granite 3.2 2B (700MB)...' &&
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"granite3.2:2b\"}' -H 'Content-Type: application/json' &&
+        echo '✓ Granite 3.2 downloaded' &&
+        
+        # Model 4: DeepSeek-Coder 1.3B (~776MB) - Code specialist
+        echo 'Downloading DeepSeek-Coder 1.3B (776MB)...' &&
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"deepseek-coder:1.3b\"}' -H 'Content-Type: application/json' &&
+        echo '✓ DeepSeek-Coder downloaded' &&
+        
+        # Model 5: DeepSeek-R1 1.5B (~1.1GB) - Reasoning specialist
+        echo 'Downloading DeepSeek-R1 1.5B (1.1GB)...' &&
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"deepseek-r1:1.5b\"}' -H 'Content-Type: application/json' &&
+        echo '✓ DeepSeek-R1 downloaded' &&
+        
+        echo '=== All models downloaded successfully! ===' &&
+        echo 'Available models:' &&
+        curl -s http://ollama:11434/api/tags | grep -o '\"name\":\"[^\"]*\"' &&
+        echo 'Model downloader completed!'
       "
     restart: "no"
 

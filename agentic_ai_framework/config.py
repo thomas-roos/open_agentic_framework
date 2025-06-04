@@ -14,7 +14,7 @@ class Config:
     def __init__(self):
         """Initialize configuration with environment variables or defaults"""
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
-        self.default_model = os.getenv("DEFAULT_MODEL", "smollm:135m")
+        self.default_model = os.getenv("DEFAULT_MODEL", "granite3.2:2b")
         self.database_path = os.getenv("DATABASE_PATH", "agentic_ai.db")
         self.api_host = os.getenv("API_HOST", "0.0.0.0")
         self.api_port = int(os.getenv("API_PORT", "8000"))
