@@ -1,8 +1,8 @@
 """
-main.py - FastAPI Application Entry Point (Enhanced with Models & Memory Management)
+main.py - FastAPI Application Entry Point (Enhanced with Fixed Model Installation)
 
 Added features:
-- Ollama models listing endpoint
+- Fixed Ollama models installation with proper error handling
 - Memory management and cleanup
 - Automatic memory clearing on startup
 - Memory statistics and cleanup endpoints
@@ -202,7 +202,7 @@ async def health_check():
         "memory_entries": memory_manager.get_memory_stats()["total_memory_entries"]
     }
 
-# NEW: Models endpoints
+# FIXED: Models endpoints with proper error handling
 @app.get("/models", response_model=List[str])
 async def list_ollama_models():
     """List all available models in Ollama"""
@@ -233,6 +233,254 @@ async def get_models_status():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get models status: {str(e)}")
+
+@app.post("/models/install")
+async def install_model(request: ModelInstallRequest, background_tasks: BackgroundTasks):
+    """Install a new model in Ollama with improved error handling"""
+    try:
+        # Validate model name format
+        model_name = request.model_name.strip()
+        if not model_name:
+            raise HTTPException(status_code=400, detail="Model name cannot be empty")
+        
+        # Check if model already exists
+        models = await ollama_client.list_models()
+        existing_model = None
+        for model in models:
+            if model_name in model or model.startswith(model_name.split(':')[0]):
+                existing_model = model
+                break
+        
+        if existing_model:
+            return {
+                "message": f"Model {existing_model} is already installed",
+                "model_name": existing_model,
+                "status": "already_installed"
+            }
+        
+        logger.info(f"Starting installation of model: {model_name}")
+        
+        if request.wait_for_completion:
+            # Wait for completion (blocking) - try simple method first
+            try:
+                success = await ollama_client.pull_model_simple(model_name)
+                if not success:
+                    # Fallback to streaming method
+                    logger.info(f"Simple pull failed, trying streaming method for {model_name}")
+                    success = await ollama_client.pull_model(model_name)
+                
+                if success:
+                    # Verify installation one more time
+                    updated_models = await ollama_client.list_models()
+                    installed_model = None
+                    for model in updated_models:
+                        if model_name in model or model.startswith(model_name.split(':')[0]):
+                            installed_model = model
+                            break
+                    
+                    if installed_model:
+                        return {
+                            "message": f"Model {installed_model} installed successfully",
+                            "model_name": installed_model,
+                            "status": "installed"
+                        }
+                    else:
+                        raise HTTPException(
+                            status_code=500, 
+                            detail=f"Model installation reported success but model {model_name} not found in model list"
+                        )
+                else:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Failed to install model {model_name}. Check Ollama logs for details."
+                    )
+                    
+            except Exception as e:
+                logger.error(f"Model installation error for {model_name}: {e}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Model installation failed: {str(e)}"
+                )
+        else:
+            # Start installation in background
+            async def background_install():
+                try:
+                    logger.info(f"Background installation started for {model_name}")
+                    success = await ollama_client.pull_model_simple(model_name)
+                    if success:
+                        logger.info(f"Background installation completed for {model_name}")
+                    else:
+                        logger.error(f"Background installation failed for {model_name}")
+                except Exception as e:
+                    logger.error(f"Background installation error for {model_name}: {e}")
+            
+            background_tasks.add_task(background_install)
+            return {
+                "message": f"Model {model_name} installation started in background",
+                "model_name": model_name,
+                "status": "installing"
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected model installation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+@app.get("/models/status/{model_name}")
+async def get_model_status(model_name: str):
+    """Get status of a specific model"""
+    try:
+        models = await ollama_client.list_models()
+        
+        # Check if model exists (handle partial matches)
+        found_model = None
+        for model in models:
+            if model_name in model or model.startswith(model_name.split(':')[0]):
+                found_model = model
+                break
+        
+        if found_model:
+            return {
+                "model_name": model_name,
+                "found_as": found_model,
+                "status": "installed",
+                "available": True
+            }
+        else:
+            return {
+                "model_name": model_name,
+                "found_as": None,
+                "status": "not_installed",
+                "available": False,
+                "available_models": models
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error checking model status: {str(e)}")
+
+@app.post("/models/test/{model_name}")
+async def test_model(model_name: str):
+    """Test if a model is working correctly"""
+    try:
+        # First check if model exists
+        models = await ollama_client.list_models()
+        found_model = None
+        
+        for model in models:
+            if model_name in model or model.startswith(model_name.split(':')[0]):
+                found_model = model
+                break
+        
+        if not found_model:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Model {model_name} not found. Available models: {models}"
+            )
+        
+        # Test the model with a simple prompt
+        test_prompt = "Hello, please respond with 'Model test successful' to confirm you are working."
+        
+        response = await ollama_client.generate_response(
+            prompt=test_prompt,
+            model=found_model
+        )
+        
+        return {
+            "model_name": found_model,
+            "test_prompt": test_prompt,
+            "response": response,
+            "status": "working",
+            "test_successful": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Model test error for {model_name}: {e}")
+        return {
+            "model_name": model_name,
+            "error": str(e),
+            "status": "error",
+            "test_successful": False
+        }
+
+@app.get("/models/installation-guide")
+async def get_installation_guide():
+    """Get guide for installing models"""
+    return {
+        "recommended_models": {
+            "ultra_lightweight": {
+                "name": "smollm:135m",
+                "size": "~92MB",
+                "use_case": "Ultra-lightweight tasks, very fast responses",
+                "install_command": "curl -X POST 'http://localhost:8000/models/install' -H 'Content-Type: application/json' -d '{\"model_name\": \"smollm:135m\", \"wait_for_completion\": true}'"
+            },
+            "lightweight": {
+                "name": "tinyllama:1.1b", 
+                "size": "~637MB",
+                "use_case": "General lightweight tasks, good balance",
+                "install_command": "curl -X POST 'http://localhost:8000/models/install' -H 'Content-Type: application/json' -d '{\"model_name\": \"tinyllama:1.1b\", \"wait_for_completion\": true}'"
+            },
+            "recommended": {
+                "name": "deepseek-r1:1.5b",
+                "size": "~1.1GB", 
+                "use_case": "Reasoning and tool calling (recommended default)",
+                "install_command": "curl -X POST 'http://localhost:8000/models/install' -H 'Content-Type: application/json' -d '{\"model_name\": \"deepseek-r1:1.5b\", \"wait_for_completion\": true}'"
+            },
+            "coding": {
+                "name": "deepseek-coder:1.3b",
+                "size": "~776MB",
+                "use_case": "Code-related tasks and programming",
+                "install_command": "curl -X POST 'http://localhost:8000/models/install' -H 'Content-Type: application/json' -d '{\"model_name\": \"deepseek-coder:1.3b\", \"wait_for_completion\": true}'"
+            }
+        },
+        "installation_steps": [
+            "1. Choose a model from the recommended list above",
+            "2. Use the provided curl command or API endpoint",
+            "3. Wait for installation to complete (can take 5-15 minutes depending on model size)",
+            "4. Test the model using /models/test/{model_name}",
+            "5. Update your agent configurations to use the new model"
+        ],
+        "troubleshooting": {
+            "installation_fails": "Check Ollama is running and accessible at the configured URL",
+            "model_not_found": "Verify model name is correct and exists in Ollama registry",
+            "timeout_errors": "Large models may take time to download, consider background installation",
+            "memory_issues": "Ensure sufficient disk space and RAM for the model size"
+        }
+    }
+
+@app.delete("/models/{model_name}")
+async def delete_model(model_name: str):
+    """Delete a model from Ollama"""
+    try:
+        success = await ollama_client.delete_model(model_name)
+        if success:
+            return {
+                "message": f"Model {model_name} deleted successfully",
+                "model_name": model_name,
+                "status": "deleted"
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"Failed to delete model {model_name}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/models/recommended")
+async def get_recommended_models():
+    """Get list of recommended models for different use cases"""
+    return {
+        "lightweight": [
+            {"name": "smollm:135m", "size": "92MB", "use_case": "Ultra-lightweight tasks"},
+            {"name": "tinyllama:1.1b", "size": "637MB", "use_case": "General lightweight tasks"}
+        ],
+        "standard": [
+            {"name": "granite3.2:2b", "size": "700MB", "use_case": "Balanced performance"},
+            {"name": "deepseek-r1:1.5b", "size": "1.1GB", "use_case": "Reasoning and tool calling"}
+        ],
+        "performance": [
+            {"name": "llama3:8b", "size": "4.7GB", "use_case": "High performance tasks"},
+            {"name": "deepseek-coder:6.7b", "size": "3.8GB", "use_case": "Advanced coding tasks"}
+        ]
+    }
 
 # Configuration endpoints
 @app.get("/config", response_model=ConfigResponse)

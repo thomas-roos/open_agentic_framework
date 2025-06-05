@@ -360,3 +360,12 @@ class SystemStatsResponse(BaseModel):
     memory: MemoryStatsResponse
     ollama: ModelsStatusResponse
     scheduled_tasks: Dict[str, Any]
+
+class ModelInstallRequest(BaseModel):
+    """Model for installing a new model"""
+    model_name: str = Field(..., description="Name of the model to install")
+    wait_for_completion: bool = Field(default=True, description="Wait for installation to complete")
+
+class ModelDeleteRequest(BaseModel):
+    """Model for deleting a model"""
+    model_name: str = Field(..., description="Name of the model to delete")
