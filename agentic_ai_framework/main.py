@@ -1,8 +1,11 @@
 """
-main.py - FastAPI Application Entry Point (Simplified)
+main.py - FastAPI Application Entry Point (Enhanced with Models & Memory Management)
 
-This simplified version includes all API routes directly in main.py
-to avoid module import issues. This is easier for deployment.
+Added features:
+- Ollama models listing endpoint
+- Memory management and cleanup
+- Automatic memory clearing on startup
+- Memory statistics and cleanup endpoints
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -10,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import List
 
@@ -28,8 +32,8 @@ logger = logging.getLogger(__name__)
 # Create FastAPI app
 app = FastAPI(
     title="Agentic AI Framework",
-    description="A robust framework for managing AI agents and workflows",
-    version="1.0.0"
+    description="A robust framework for managing AI agents and workflows with enhanced memory management",
+    version="1.1.0"
 )
 
 # Add CORS middleware
@@ -51,25 +55,28 @@ tool_manager = ToolManager(memory_manager, config.tools_directory)
 agent_manager = AgentManager(ollama_client, memory_manager, tool_manager, config)
 workflow_manager = WorkflowManager(agent_manager, tool_manager, memory_manager)
 
-# Background scheduler
+# Enhanced Background scheduler with memory cleanup
 class BackgroundScheduler:
-    """Simple background scheduler"""
+    """Enhanced background scheduler with memory management"""
     
-    def __init__(self, memory_manager, agent_manager, workflow_manager, interval=60):
+    def __init__(self, memory_manager, agent_manager, workflow_manager, config, interval=60):
         self.memory_manager = memory_manager
         self.agent_manager = agent_manager
         self.workflow_manager = workflow_manager
+        self.config = config
         self.interval = interval
         self.running = False
+        self._last_memory_cleanup = time.time()
     
     async def start(self):
         """Start the background scheduler"""
         self.running = True
-        logger.info("Background scheduler started")
+        logger.info("Enhanced background scheduler started with memory management")
         
         while self.running:
             try:
                 await self._process_pending_tasks()
+                await self._check_memory_cleanup()
                 await asyncio.sleep(self.interval)
             except Exception as e:
                 logger.error(f"Scheduler error: {e}")
@@ -113,18 +120,47 @@ class BackgroundScheduler:
                     task['id'], "failed", error_msg
                 )
                 logger.error(f"Failed scheduled task {task['id']}: {error_msg}")
+    
+    async def _check_memory_cleanup(self):
+        """Check if periodic memory cleanup is needed"""
+        current_time = time.time()
+        
+        if current_time - self._last_memory_cleanup >= self.config.memory_cleanup_interval:
+            await self._cleanup_memory_periodic()
+            self._last_memory_cleanup = current_time
+    
+    async def _cleanup_memory_periodic(self):
+        """Periodic memory cleanup for all agents"""
+        try:
+            logger.info("Starting periodic memory cleanup...")
+            agents = self.memory_manager.get_all_agents()
+            
+            for agent in agents:
+                self.memory_manager.cleanup_agent_memory(
+                    agent["name"], 
+                    keep_last=self.config.max_agent_memory_entries
+                )
+            
+            logger.info(f"Completed periodic memory cleanup for {len(agents)} agents")
+        except Exception as e:
+            logger.error(f"Error during periodic memory cleanup: {e}")
 
-# Initialize background scheduler
+# Initialize enhanced background scheduler
 background_scheduler = BackgroundScheduler(
-    memory_manager, agent_manager, workflow_manager, config.scheduler_interval
+    memory_manager, agent_manager, workflow_manager, config, config.scheduler_interval
 )
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the framework on startup"""
+    """Initialize the framework on startup with memory cleanup"""
     try:
         # Initialize database tables
         memory_manager.initialize_database()
+        
+        # Clear all agent memory on startup if configured
+        if config.clear_memory_on_startup:
+            logger.info("Clearing all agent memory on startup...")
+            memory_manager.clear_all_agent_memory()
         
         # Load and register tools
         tool_manager.discover_and_register_tools()
@@ -132,7 +168,7 @@ async def startup_event():
         # Start background scheduler
         asyncio.create_task(background_scheduler.start())
         
-        logger.info("Agentic AI Framework started successfully")
+        logger.info("Agentic AI Framework started successfully with enhanced memory management")
     except Exception as e:
         logger.error(f"Startup error: {e}")
         raise
@@ -149,9 +185,11 @@ async def root():
     """Root endpoint with basic information"""
     return {
         "message": "Agentic AI Framework",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "docs": "/docs",
-        "health": "/health"
+        "health": "/health",
+        "models": "/models",
+        "memory_stats": "/memory/stats"
     }
 
 @app.get("/health")
@@ -160,8 +198,41 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow(),
-        "ollama_status": await ollama_client.health_check()
+        "ollama_status": await ollama_client.health_check(),
+        "memory_entries": memory_manager.get_memory_stats()["total_memory_entries"]
     }
+
+# NEW: Models endpoints
+@app.get("/models", response_model=List[str])
+async def list_ollama_models():
+    """List all available models in Ollama"""
+    try:
+        models = await ollama_client.list_models()
+        return models
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch models: {str(e)}")
+
+@app.get("/models/status")
+async def get_models_status():
+    """Get detailed status of available models"""
+    try:
+        models = await ollama_client.list_models()
+        health = await ollama_client.health_check()
+        return {
+            "ollama_healthy": health,
+            "total_models": len(models),
+            "available_models": models,
+            "default_model": config.default_model,
+            "recommended_models": [
+                "deepseek-r1:1.5b",
+                "granite3.2:2b", 
+                "tinyllama:1.1b",
+                "deepseek-coder:1.3b",
+                "smollm:135m"
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get models status: {str(e)}")
 
 # Configuration endpoints
 @app.get("/config", response_model=ConfigResponse)
@@ -178,7 +249,7 @@ async def update_config(config_update: ConfigUpdate):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Agent endpoints
+# Agent endpoints (existing with memory limits applied)
 @app.post("/agents", response_model=AgentResponse)
 async def create_agent(agent_def: AgentDefinition):
     """Create a new agent"""
@@ -245,11 +316,78 @@ async def execute_agent(agent_name: str, request: AgentExecutionRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/agents/{agent_name}/memory", response_model=List[MemoryEntryResponse])
-async def get_agent_memory(agent_name: str, limit: int = 50):
-    """Get agent's memory/conversation history"""
+async def get_agent_memory(agent_name: str, limit: int = 5):
+    """Get agent's memory/conversation history (limited)"""
     return memory_manager.get_agent_memory(agent_name, limit)
 
-# Tool endpoints
+# NEW: Memory management endpoints
+@app.delete("/agents/{agent_name}/memory")
+async def clear_agent_memory(agent_name: str):
+    """Clear all memory for a specific agent"""
+    try:
+        agent = memory_manager.get_agent(agent_name)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        memory_manager.clear_agent_memory(agent_name)
+        return {"message": f"Memory cleared for agent {agent_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/agents/{agent_name}/memory/cleanup")
+async def cleanup_agent_memory_endpoint(agent_name: str, keep_last: int = 5):
+    """Cleanup old memory entries for a specific agent"""
+    try:
+        agent = memory_manager.get_agent(agent_name)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        memory_manager.cleanup_agent_memory(agent_name, keep_last)
+        return {
+            "message": f"Memory cleanup completed for agent {agent_name}",
+            "kept_entries": keep_last
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/memory/stats")
+async def get_memory_stats():
+    """Get memory usage statistics"""
+    try:
+        stats = memory_manager.get_memory_stats()
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/memory/clear-all")
+async def clear_all_memory():
+    """Clear memory for all agents"""
+    try:
+        memory_manager.clear_all_agent_memory()
+        return {"message": "All agent memory cleared successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/memory/cleanup")
+async def cleanup_all_agent_memory():
+    """Cleanup old memory entries for all agents, keeping only last entries"""
+    try:
+        agents = memory_manager.get_all_agents()
+        cleaned_agents = 0
+        
+        for agent in agents:
+            memory_manager.cleanup_agent_memory(agent["name"], keep_last=config.max_agent_memory_entries)
+            cleaned_agents += 1
+        
+        return {
+            "message": f"Memory cleanup completed for {cleaned_agents} agents",
+            "agents_processed": cleaned_agents,
+            "kept_entries_per_agent": config.max_agent_memory_entries
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Tool endpoints (existing, unchanged)
 @app.get("/tools", response_model=List[ToolInfo])
 async def list_tools():
     """List all tools"""
@@ -279,12 +417,11 @@ async def execute_tool(tool_name: str, request: ToolExecutionRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Workflow endpoints
+# Workflow endpoints (existing, unchanged)
 @app.post("/workflows", response_model=WorkflowResponse)
 async def create_workflow(workflow_def: WorkflowDefinition):
     """Create a new workflow"""
     try:
-        # Convert Pydantic models to dicts before storing
         steps_dict = []
         for step in workflow_def.steps:
             step_dict = {
@@ -299,7 +436,7 @@ async def create_workflow(workflow_def: WorkflowDefinition):
         workflow_id = memory_manager.register_workflow(
             name=workflow_def.name,
             description=workflow_def.description,
-            steps=steps_dict,  # Use converted dict instead of Pydantic objects
+            steps=steps_dict,
             enabled=workflow_def.enabled
         )
         return WorkflowResponse(id=workflow_id, name=workflow_def.name, message="Workflow created successfully")
@@ -354,7 +491,7 @@ async def execute_workflow(workflow_name: str, request: WorkflowExecutionRequest
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Scheduling endpoints
+# Scheduling endpoints (existing, unchanged)
 @app.post("/schedule", response_model=ScheduleResponse)
 async def schedule_task(task: ScheduledTaskDefinition):
     """Schedule a task for execution"""
