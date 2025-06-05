@@ -9,7 +9,7 @@ services:
       - "8000:8000"
     environment:
       - OLLAMA_URL=http://ollama:11434
-      - DEFAULT_MODEL=llama3
+      - DEFAULT_MODEL=granite3.2:2b
       - DATABASE_PATH=/app/data/agentic_ai.db
       - API_HOST=0.0.0.0
       - API_PORT=8000
