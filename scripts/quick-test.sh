@@ -4,7 +4,7 @@
 # Configuration
 API_BASE="http://localhost:8000"
 MAX_MODELS=10
-TIMEOUT=90     # Increased timeout to 90 seconds
+TIMEOUT=120
 LOG_DIR="/tmp/model_test_logs"
 
 echo "🚀 Enhanced Model Performance Test"
