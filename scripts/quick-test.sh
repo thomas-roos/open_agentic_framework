@@ -1,5 +1,5 @@
 #!/bin/bash
-# optimized-model-test.sh - Optimized for DigitalOcean performance
+# optimized-model-test.sh - Enhanced with detailed message output
 
 # Configuration for production environment
 API_BASE="http://localhost:8000"
@@ -9,12 +9,18 @@ SUBSEQUENT_TIMEOUT=120  # 2 minutes for subsequent tests
 WARMUP_TIMEOUT=60      # 1 minute for model warmup
 LOG_DIR="/tmp/model_test_logs"
 
-echo "🚀 Optimized Model Performance Test (DigitalOcean)"
+# New options for detailed output
+SHOW_FULL_RESPONSE=true  # Set to false to use truncated output
+SHOW_TOOL_CALLS=true     # Highlight tool calls specifically
+SHOW_TIMING_DETAILS=true # Show detailed timing information
+
+echo "🚀 Enhanced Model Performance Test (DigitalOcean)"
 echo "================================================="
 echo "💻 Configured for production environment"
 echo "⏱️  Initial timeout: ${INITIAL_TIMEOUT}s (includes model loading)"
 echo "⏱️  Subsequent timeout: ${SUBSEQUENT_TIMEOUT}s"
 echo "🔥 Pre-warming models before testing"
+echo "📝 Full response details: $([ "$SHOW_FULL_RESPONSE" = true ] && echo "ENABLED" || echo "DISABLED")"
 echo ""
 
 # Create log directory
@@ -27,9 +33,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;95m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-# Function to print colored output
+# Function to print colored output with enhanced formatting
 print_status() {
     local status=$1
     local model=$2
@@ -43,49 +51,61 @@ print_status() {
     
     case $status in
         "SUCCESS")
-            echo -e "${GREEN}✓${NC} $model: ${GREEN}WORKS${NC}$time_info - $message"
+            echo -e "${GREEN}✓${NC} ${BOLD}$model${NC}: ${GREEN}WORKS${NC}$time_info - $message"
             ;;
         "FAILED")
-            echo -e "${RED}✗${NC} $model: ${RED}FAILED${NC}$time_info - $message"
+            echo -e "${RED}✗${NC} ${BOLD}$model${NC}: ${RED}FAILED${NC}$time_info - $message"
             ;;
         "INFO")
-            echo -e "${BLUE}ℹ${NC} $model: ${BLUE}INFO${NC}$time_info - $message"
+            echo -e "${BLUE}ℹ${NC} ${BOLD}$model${NC}: ${BLUE}INFO${NC}$time_info - $message"
             ;;
         "WARNING")
-            echo -e "${YELLOW}⚠${NC} $model: ${YELLOW}WARNING${NC}$time_info - $message"
+            echo -e "${YELLOW}⚠${NC} ${BOLD}$model${NC}: ${YELLOW}WARNING${NC}$time_info - $message"
             ;;
         "TIMEOUT")
-            echo -e "${PURPLE}⏱${NC} $model: ${PURPLE}TIMEOUT${NC}$time_info - $message"
+            echo -e "${PURPLE}⏱${NC} ${BOLD}$model${NC}: ${PURPLE}TIMEOUT${NC}$time_info - $message"
             ;;
         "WARMUP")
-            echo -e "${CYAN}🔥${NC} $model: ${CYAN}WARMUP${NC}$time_info - $message"
+            echo -e "${CYAN}🔥${NC} ${BOLD}$model${NC}: ${CYAN}WARMUP${NC}$time_info - $message"
             ;;
     esac
 }
 
-# Check system resources
+# Enhanced system resource check
 check_system_resources() {
     echo "🔍 Checking system resources..."
     
-    # Memory info
+    # Memory info with usage percentage
+    local total_mem_kb=$(free | awk '/^Mem:/ {print $2}')
+    local available_mem_kb=$(free | awk '/^Mem:/ {print $7}')
+    local used_mem_kb=$((total_mem_kb - available_mem_kb))
+    local mem_usage_percent=$((used_mem_kb * 100 / total_mem_kb))
+    
     local total_mem=$(free -h | awk '/^Mem:/ {print $2}')
     local available_mem=$(free -h | awk '/^Mem:/ {print $7}')
-    echo "💾 Memory: $available_mem available of $total_mem total"
+    echo "💾 Memory: $available_mem available of $total_mem total (${mem_usage_percent}% used)"
     
-    # CPU info
+    # CPU info with load
     local cpu_count=$(nproc)
-    echo "🖥️  CPUs: $cpu_count cores"
+    local load_1min=$(uptime | awk -F'load average:' '{print $2}' | awk -F',' '{print $1}' | tr -d ' ')
+    local load_percentage=$(echo "$load_1min * 100 / $cpu_count" | bc -l 2>/dev/null | cut -d'.' -f1)
+    echo "🖥️  CPUs: $cpu_count cores (Load: ${load_percentage:-0}%)"
     
-    # Load average
-    local load_avg=$(uptime | awk -F'load average:' '{print $2}')
-    echo "📊 Load average:$load_avg"
+    # Disk space
+    local disk_usage=$(df -h / | awk 'NR==2 {print $5}' | tr -d '%')
+    echo "💿 Disk usage: ${disk_usage}%"
     
     # Check if Ollama is using significant resources
     echo "🔧 Checking Ollama status..."
     if docker ps | grep -q ollama; then
         echo "✅ Ollama container is running"
-        local ollama_mem=$(docker stats --no-stream --format "table {{.Container}}\t{{.MemUsage}}" | grep ollama | awk '{print $2}' || echo "Unknown")
-        echo "💾 Ollama memory usage: $ollama_mem"
+        local ollama_stats=$(docker stats --no-stream --format "{{.Container}}\t{{.MemUsage}}\t{{.CPUPerc}}" | grep ollama)
+        if [ -n "$ollama_stats" ]; then
+            local ollama_mem=$(echo "$ollama_stats" | awk '{print $2}')
+            local ollama_cpu=$(echo "$ollama_stats" | awk '{print $3}')
+            echo "💾 Ollama memory: $ollama_mem"
+            echo "🖥️  Ollama CPU: $ollama_cpu"
+        fi
     else
         echo "❌ Ollama container not found"
     fi
@@ -93,10 +113,10 @@ check_system_resources() {
     echo ""
 }
 
-# Wait for API to be ready
+# Wait for API to be ready with enhanced feedback
 wait_for_api() {
     echo "Checking API availability..."
-    local retries=60  # Increased retries for production
+    local retries=60
     local count=0
     
     while [ $count -lt $retries ]; do
@@ -106,8 +126,10 @@ wait_for_api() {
             # Check API health details
             local health_response=$(curl -s "$API_BASE/health" 2>/dev/null)
             local ollama_status=$(echo "$health_response" | jq -r '.ollama_status' 2>/dev/null)
+            local uptime=$(echo "$health_response" | jq -r '.uptime // "unknown"' 2>/dev/null)
+            
             if [ "$ollama_status" = "true" ]; then
-                echo -e "${GREEN}✓${NC} Ollama is healthy"
+                echo -e "${GREEN}✓${NC} Ollama is healthy (uptime: $uptime)"
             else
                 echo -e "${YELLOW}⚠${NC} Ollama health check failed"
             fi
@@ -115,7 +137,7 @@ wait_for_api() {
             return 0
         fi
         echo -n "."
-        sleep 3  # Longer sleep for production
+        sleep 3
         ((count++))
     done
     
@@ -123,7 +145,7 @@ wait_for_api() {
     exit 1
 }
 
-# Pre-warm a model by making a simple request
+# Enhanced warmup with detailed feedback
 warmup_model() {
     local model="$1"
     
@@ -149,6 +171,7 @@ warmup_model() {
     local start_time=$(date +%s)
     
     # Create warmup agent
+    echo "  📝 Creating warmup agent..."
     local create_response
     create_response=$(timeout $WARMUP_TIMEOUT curl -s -X POST "$API_BASE/agents" \
       -H "Content-Type: application/json" \
@@ -160,6 +183,7 @@ warmup_model() {
     fi
     
     # Simple warmup task
+    echo "  🎯 Executing warmup task..."
     local warmup_task
     warmup_task=$(jq -n '{
         task: "Say hello briefly",
@@ -176,7 +200,14 @@ warmup_model() {
     local end_time=$(date +%s)
     local warmup_time=$((end_time - start_time))
     
+    # Show warmup response if detailed output is enabled
+    if [ "$SHOW_FULL_RESPONSE" = true ] && [ $warmup_exit_code -eq 0 ]; then
+        local warmup_result=$(echo "$warmup_response" | jq -r '.result // "No result"' 2>/dev/null)
+        echo "  💬 Warmup response: $warmup_result"
+    fi
+    
     # Cleanup warmup agent
+    echo "  🧹 Cleaning up warmup agent..."
     curl -s -X DELETE "$API_BASE/agents/$warmup_agent" >/dev/null 2>&1
     
     if [ $warmup_exit_code -eq 0 ] && ! echo "$warmup_response" | jq -e '.error or .detail' >/dev/null 2>&1; then
@@ -188,7 +219,7 @@ warmup_model() {
     fi
 }
 
-# Get list of available models
+# Get list of available models with enhanced feedback
 get_available_models() {
     echo "Discovering available models..."
     
@@ -225,7 +256,7 @@ get_available_models() {
     return 0
 }
 
-# Progressive timeout test
+# Enhanced test function with detailed output
 test_model() {
     local model="$1"
     local is_first_model="$2"
@@ -238,7 +269,7 @@ test_model() {
     
     echo ""
     echo -e "${CYAN}===========================================${NC}"
-    echo -e "${BLUE}Testing model: $model${NC}"
+    echo -e "${BOLD}${BLUE}Testing model: $model${NC}"
     echo -e "${CYAN}Timeout: ${test_timeout}s${NC}"
     echo -e "${CYAN}===========================================${NC}"
     
@@ -258,10 +289,10 @@ test_model() {
     # Pre-warm model if it's the first time
     if [ "$is_first_model" = "true" ]; then
         warmup_model "$model"
-        sleep 2  # Brief pause after warmup
+        sleep 2
     fi
     
-    echo "Creating optimized test agent: $agent_name"
+    echo "📝 Creating optimized test agent: $agent_name"
     
     # Ultra-explicit agent payload optimized for tool usage
     local agent_payload
@@ -278,8 +309,8 @@ test_model() {
             enabled: true
         }')
     
-    # Create agent
-    echo "Creating agent..."
+    # Create agent with timing
+    echo "🔧 Creating agent..."
     local create_start=$(date +%s)
     local create_response
     create_response=$(timeout $test_timeout curl -s -X POST "$API_BASE/agents" \
@@ -310,8 +341,8 @@ test_model() {
         context: {}
     }')
     
-    # Execute test
-    echo "Executing test task..."
+    # Execute test with detailed timing
+    echo "🎯 Executing test task..."
     local exec_start=$(date +%s)
     local test_response
     test_response=$(timeout $test_timeout curl -s -X POST "$API_BASE/agents/$agent_name/execute" \
@@ -323,8 +354,15 @@ test_model() {
     local exec_time=$((exec_end - exec_start))
     local total_time=$((exec_time + create_time))
     
+    if [ "$SHOW_TIMING_DETAILS" = true ]; then
+        echo -e "${CYAN}⏱️  Timing breakdown:${NC}"
+        echo "   Agent creation: ${create_time}s"
+        echo "   Task execution: ${exec_time}s"
+        echo "   Total time: ${total_time}s"
+    fi
+    
     # Always cleanup
-    echo "Cleaning up agent..."
+    echo "🧹 Cleaning up agent..."
     curl -s -X DELETE "$API_BASE/agents/$agent_name" >/dev/null 2>&1
     
     if [ $curl_exit_code -ne 0 ]; then
@@ -339,7 +377,7 @@ test_model() {
     analyze_test_result "$model" "$test_response" "$log_file" "$total_time"
 }
 
-# Simplified but thorough analysis
+# Enhanced analysis with full response display
 analyze_test_result() {
     local model="$1"
     local response="$2" 
@@ -347,14 +385,16 @@ analyze_test_result() {
     local total_time="$4"
     
     echo ""
-    echo -e "${YELLOW}📋 Response Analysis for $model:${NC}"
-    echo "----------------------------------------"
+    echo -e "${BOLD}${YELLOW}📋 Detailed Response Analysis for $model:${NC}"
+    echo "=================================================================="
     
-    # Check for API errors
+    # Check for API errors first
     if echo "$response" | jq -e '.error or .detail' >/dev/null 2>&1; then
         local error_msg
         error_msg=$(echo "$response" | jq -r '.detail // .error // .message' 2>/dev/null)
         print_status "FAILED" "$model" "API Error: $error_msg" "$total_time"
+        echo -e "${RED}❌ Full error response:${NC}"
+        echo "$response" | jq . 2>/dev/null || echo "$response"
         return 1
     fi
     
@@ -364,35 +404,123 @@ analyze_test_result() {
     
     if [ -z "$result_content" ] || [ "$result_content" = "null" ]; then
         print_status "FAILED" "$model" "No result content" "$total_time"
+        echo -e "${RED}❌ Empty response structure:${NC}"
+        echo "$response" | jq . 2>/dev/null || echo "$response"
         return 1
     fi
     
-    # Show result (truncated for readability, full version in log)
-    echo -e "${CYAN}📄 RESPONSE (first 200 chars):${NC}"
-    echo "$(echo "$result_content" | head -c 200)..."
-    echo ""
-    
-    # Quick analysis
-    local success=false
-    local reason=""
-    
-    if echo "$result_content" | grep -qi "TOOL_CALL.*website_monitor"; then
-        success=true
-        reason="Perfect TOOL_CALL format"
-    elif echo "$result_content" | grep -qi "status_code.*200\|response_time"; then
-        success=true
-        reason="Tool execution detected (status/timing data)"
-    elif echo "$result_content" | grep -qi "google\.com.*online\|website.*accessible"; then
-        success=true  
-        reason="Website check completed"
-    elif echo "$result_content" | grep -qi "import\|def \|python\|http\.client"; then
-        success=false
-        reason="Model wrote code instead of using tools"
+    # Show full response or truncated based on setting
+    if [ "$SHOW_FULL_RESPONSE" = true ]; then
+        echo -e "${BOLD}${CYAN}📄 COMPLETE RESPONSE:${NC}"
+        echo "=================================================================="
+        echo "$result_content"
+        echo "=================================================================="
     else
-        success=false
-        reason="No clear tool usage detected"
+        echo -e "${CYAN}📄 RESPONSE (first 300 chars):${NC}"
+        echo "$(echo "$result_content" | head -c 300)..."
+        echo ""
+        echo -e "${BLUE}💡 Full response saved to: $log_file${NC}"
     fi
     
+    # Enhanced tool call detection
+    if [ "$SHOW_TOOL_CALLS" = true ]; then
+        echo ""
+        echo -e "${BOLD}${MAGENTA}🔧 Tool Call Analysis:${NC}"
+        echo "------------------------------------------------"
+        
+        # Look for various tool call patterns
+        if echo "$result_content" | grep -qi "TOOL_CALL.*website_monitor"; then
+            echo -e "${GREEN}✓${NC} Found explicit TOOL_CALL format"
+            local tool_call_line=$(echo "$result_content" | grep -i "TOOL_CALL.*website_monitor" | head -1)
+            echo -e "${CYAN}   Pattern: $tool_call_line${NC}"
+        fi
+        
+        if echo "$result_content" | grep -qi "website_monitor.*url"; then
+            echo -e "${GREEN}✓${NC} Found website_monitor tool usage"
+        fi
+        
+        if echo "$result_content" | grep -qi "status_code.*200"; then
+            echo -e "${GREEN}✓${NC} Found HTTP status code in response"
+        fi
+        
+        if echo "$result_content" | grep -qi "response_time\|elapsed"; then
+            echo -e "${GREEN}✓${NC} Found timing information"
+        fi
+        
+        if echo "$result_content" | grep -qi "google\.com"; then
+            echo -e "${GREEN}✓${NC} Target URL (google.com) mentioned"
+        fi
+        
+        if echo "$result_content" | grep -qi "import\|def \|python\|http\.client"; then
+            echo -e "${RED}⚠${NC} Found code generation (not desired)"
+        fi
+    fi
+    
+    # Detailed success analysis
+    echo ""
+    echo -e "${BOLD}${BLUE}🎯 Success Criteria Analysis:${NC}"
+    echo "------------------------------------------------"
+    
+    local success=false
+    local reason=""
+    local score=0
+    
+    # Multiple success criteria with scoring
+    if echo "$result_content" | grep -qi "TOOL_CALL.*website_monitor"; then
+        score=$((score + 30))
+        echo -e "${GREEN}✓${NC} [30 pts] Perfect TOOL_CALL format detected"
+    fi
+    
+    if echo "$result_content" | grep -qi "status_code.*200\|HTTP.*200"; then
+        score=$((score + 25))
+        echo -e "${GREEN}✓${NC} [25 pts] HTTP 200 status detected"
+    fi
+    
+    if echo "$result_content" | grep -qi "response_time\|elapsed.*ms"; then
+        score=$((score + 20))
+        echo -e "${GREEN}✓${NC} [20 pts] Response timing data found"
+    fi
+    
+    if echo "$result_content" | grep -qi "google\.com.*online\|google\.com.*accessible\|website.*up"; then
+        score=$((score + 15))
+        echo -e "${GREEN}✓${NC} [15 pts] Website accessibility confirmed"
+    fi
+    
+    if echo "$result_content" | grep -qi "tool.*executed\|using.*tool"; then
+        score=$((score + 10))
+        echo -e "${GREEN}✓${NC} [10 pts] Tool execution mentioned"
+    fi
+    
+    # Penalty for code generation
+    if echo "$result_content" | grep -qi "import\|def \|python\|http\.client\|requests\.get"; then
+        score=$((score - 50))
+        echo -e "${RED}✗${NC} [-50 pts] Code generation detected (major penalty)"
+    fi
+    
+    echo ""
+    echo -e "${BOLD}📊 Total Score: $score/100${NC}"
+    
+    # Determine success based on score
+    if [ $score -ge 50 ]; then
+        success=true
+        if [ $score -ge 80 ]; then
+            reason="Excellent tool usage (Score: $score/100)"
+        elif [ $score -ge 65 ]; then
+            reason="Good tool usage (Score: $score/100)"
+        else
+            reason="Acceptable tool usage (Score: $score/100)"
+        fi
+    else
+        success=false
+        if [ $score -le 0 ]; then
+            reason="Poor response - code generation detected (Score: $score/100)"
+        else
+            reason="Insufficient tool usage (Score: $score/100)"
+        fi
+    fi
+    
+    # Final status
+    echo ""
     if [ "$success" = true ]; then
         print_status "SUCCESS" "$model" "$reason" "$total_time"
         return 0
@@ -402,12 +530,49 @@ analyze_test_result() {
     fi
 }
 
-# Main execution
+# Enhanced main execution with configuration options
 main() {
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --no-full-response)
+                SHOW_FULL_RESPONSE=false
+                shift
+                ;;
+            --no-tool-calls)
+                SHOW_TOOL_CALLS=false
+                shift
+                ;;
+            --no-timing)
+                SHOW_TIMING_DETAILS=false
+                shift
+                ;;
+            --brief)
+                SHOW_FULL_RESPONSE=false
+                SHOW_TOOL_CALLS=false
+                SHOW_TIMING_DETAILS=false
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                echo "Available options:"
+                echo "  --no-full-response  : Show truncated responses"
+                echo "  --no-tool-calls     : Hide tool call analysis"
+                echo "  --no-timing         : Hide timing details"
+                echo "  --brief             : Show minimal output"
+                exit 1
+                ;;
+        esac
+    done
+    
     # Check dependencies
     if ! command -v jq &> /dev/null; then
         echo -e "${RED}✗${NC} jq is required but not installed."
         exit 1
+    fi
+    
+    if ! command -v bc &> /dev/null; then
+        echo -e "${YELLOW}⚠${NC} bc not found - some calculations may be disabled"
     fi
     
     # System check
@@ -431,8 +596,12 @@ main() {
         exit 1
     fi
     
-    echo "🚀 Starting optimized model tests..."
+    echo "🚀 Starting enhanced model tests..."
     echo "📁 Logs will be saved to: $LOG_DIR"
+    echo "🔧 Configuration:"
+    echo "   Full responses: $([ "$SHOW_FULL_RESPONSE" = true ] && echo "ENABLED" || echo "DISABLED")"
+    echo "   Tool call analysis: $([ "$SHOW_TOOL_CALLS" = true ] && echo "ENABLED" || echo "DISABLED")"
+    echo "   Timing details: $([ "$SHOW_TIMING_DETAILS" = true ] && echo "ENABLED" || echo "DISABLED")"
     echo ""
     
     # Test models
@@ -441,6 +610,7 @@ main() {
     local first_model=true
     local working_models=()
     local failed_models=()
+    local model_scores=()
     
     while IFS= read -r model; do
         if [ -n "$model" ] && [ "$model" != "null" ]; then
@@ -461,13 +631,14 @@ main() {
     # Cleanup
     rm -f /tmp/models_to_test.txt
     
-    # Final summary
+    # Enhanced final summary
     echo ""
-    echo "🎉 Optimized Testing Complete!"
-    echo "=============================="
+    echo "🎉 Enhanced Testing Complete!"
+    echo "============================="
     echo -e "Total models tested: ${BLUE}$total_models${NC}"
     echo -e "Successful: ${GREEN}$successful_models${NC}"  
     echo -e "Failed: ${RED}${#failed_models[@]}${NC}"
+    echo -e "Success rate: ${BOLD}$((successful_models * 100 / total_models))%${NC}"
     echo ""
     
     if [ ${#working_models[@]} -gt 0 ]; then
@@ -479,35 +650,61 @@ main() {
         echo -e "${GREEN}💡 Use these models for your production agents!${NC}"
     else
         echo -e "${RED}❌ No models working properly${NC}"
+    fi
+    
+    if [ ${#failed_models[@]} -gt 0 ]; then
         echo ""
-        echo -e "${YELLOW}🔧 Troubleshooting suggestions:${NC}"
-        echo "  1. Check individual log files in $LOG_DIR"
-        echo "  2. Verify agent manager tool integration"
-        echo "  3. Consider using smaller models first"
-        echo "  4. Check system resources during peak usage"
+        echo -e "${RED}❌ FAILED MODELS:${NC}"
+        for model in "${failed_models[@]}"; do
+            echo "  ❌ $model"
+        done
     fi
     
     echo ""
-    echo -e "${CYAN}📊 Performance Notes:${NC}"
+    echo -e "${CYAN}📊 Performance Summary:${NC}"
     echo "• First model test includes loading time"
     echo "• Subsequent tests should be faster"
     echo "• Pre-warming improves performance"
-    echo "• Full responses saved in log files"
+    echo "• Full responses saved in log files: $LOG_DIR"
+    echo "• Detailed analysis shows tool usage patterns"
+    
+    echo ""
+    echo -e "${BLUE}💡 Tips for better results:${NC}"
+    echo "• Models scoring 80+ are excellent for production"
+    echo "• Models scoring 50-79 are acceptable"
+    echo "• Models scoring <50 may need different prompting"
+    echo "• Check individual log files for debugging"
 }
 
-# Run with help option
+# Enhanced help with new options
 case "${1:-}" in
     "--help"|"-h")
-        echo "Usage: $0 [--help]"
+        echo "Usage: $0 [OPTIONS]"
         echo ""
-        echo "Optimized model testing for DigitalOcean production environment:"
+        echo "Enhanced model testing for DigitalOcean production environment"
+        echo ""
+        echo "Options:"
+        echo "  --no-full-response  : Show truncated responses (default: show full)"
+        echo "  --no-tool-calls     : Hide detailed tool call analysis"
+        echo "  --no-timing         : Hide detailed timing information"
+        echo "  --brief             : Show minimal output (combines all --no-* options)"
+        echo "  --help, -h          : Show this help message"
+        echo ""
+        echo "Features:"
         echo "• Pre-warms models before testing"
         echo "• Progressive timeouts (3min first, 2min subsequent)"
         echo "• System resource monitoring"
         echo "• Production-optimized prompting"
-        echo "• Full response logging"
+        echo "• Full response logging and analysis"
+        echo "• Detailed tool usage scoring"
+        echo "• Enhanced timing breakdown"
         echo ""
-        echo "Designed for 8vCPU/16GB DigitalOcean droplets"
+        echo "Examples:"
+        echo "  $0                    # Full detailed output"
+        echo "  $0 --brief           # Minimal output"
+        echo "  $0 --no-full-response # Show truncated responses"
+        echo ""
+        echo "Designed for 4GB+ DigitalOcean droplets with tool-capable models"
         exit 0
         ;;
     *)
