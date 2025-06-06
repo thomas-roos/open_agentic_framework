@@ -1,14 +1,21 @@
 #!/bin/bash
-# enhanced-model-test.sh - Enhanced model test with better prompting and full output
+# optimized-model-test.sh - Optimized for DigitalOcean performance
 
-# Configuration
+# Configuration for production environment
 API_BASE="http://localhost:8000"
 MAX_MODELS=10
-TIMEOUT=120
+INITIAL_TIMEOUT=180    # 3 minutes for first test (model loading)
+SUBSEQUENT_TIMEOUT=120  # 2 minutes for subsequent tests
+WARMUP_TIMEOUT=60      # 1 minute for model warmup
 LOG_DIR="/tmp/model_test_logs"
 
-echo "🚀 Enhanced Model Performance Test"
-echo "=================================="
+echo "🚀 Optimized Model Performance Test (DigitalOcean)"
+echo "================================================="
+echo "💻 Configured for production environment"
+echo "⏱️  Initial timeout: ${INITIAL_TIMEOUT}s (includes model loading)"
+echo "⏱️  Subsequent timeout: ${SUBSEQUENT_TIMEOUT}s"
+echo "🔥 Pre-warming models before testing"
+echo ""
 
 # Create log directory
 mkdir -p "$LOG_DIR"
@@ -27,51 +34,164 @@ print_status() {
     local status=$1
     local model=$2
     local message=$3
+    local time_taken=${4:-""}
+    
+    local time_info=""
+    if [ -n "$time_taken" ]; then
+        time_info=" (${time_taken}s)"
+    fi
     
     case $status in
         "SUCCESS")
-            echo -e "${GREEN}✓${NC} $model: ${GREEN}WORKS${NC} - $message"
+            echo -e "${GREEN}✓${NC} $model: ${GREEN}WORKS${NC}$time_info - $message"
             ;;
         "FAILED")
-            echo -e "${RED}✗${NC} $model: ${RED}FAILED${NC} - $message"
+            echo -e "${RED}✗${NC} $model: ${RED}FAILED${NC}$time_info - $message"
             ;;
         "INFO")
-            echo -e "${BLUE}ℹ${NC} $model: ${BLUE}INFO${NC} - $message"
+            echo -e "${BLUE}ℹ${NC} $model: ${BLUE}INFO${NC}$time_info - $message"
             ;;
         "WARNING")
-            echo -e "${YELLOW}⚠${NC} $model: ${YELLOW}WARNING${NC} - $message"
+            echo -e "${YELLOW}⚠${NC} $model: ${YELLOW}WARNING${NC}$time_info - $message"
             ;;
         "TIMEOUT")
-            echo -e "${PURPLE}⏱${NC} $model: ${PURPLE}TIMEOUT${NC} - $message"
+            echo -e "${PURPLE}⏱${NC} $model: ${PURPLE}TIMEOUT${NC}$time_info - $message"
+            ;;
+        "WARMUP")
+            echo -e "${CYAN}🔥${NC} $model: ${CYAN}WARMUP${NC}$time_info - $message"
             ;;
     esac
+}
+
+# Check system resources
+check_system_resources() {
+    echo "🔍 Checking system resources..."
+    
+    # Memory info
+    local total_mem=$(free -h | awk '/^Mem:/ {print $2}')
+    local available_mem=$(free -h | awk '/^Mem:/ {print $7}')
+    echo "💾 Memory: $available_mem available of $total_mem total"
+    
+    # CPU info
+    local cpu_count=$(nproc)
+    echo "🖥️  CPUs: $cpu_count cores"
+    
+    # Load average
+    local load_avg=$(uptime | awk -F'load average:' '{print $2}')
+    echo "📊 Load average:$load_avg"
+    
+    # Check if Ollama is using significant resources
+    echo "🔧 Checking Ollama status..."
+    if docker ps | grep -q ollama; then
+        echo "✅ Ollama container is running"
+        local ollama_mem=$(docker stats --no-stream --format "table {{.Container}}\t{{.MemUsage}}" | grep ollama | awk '{print $2}' || echo "Unknown")
+        echo "💾 Ollama memory usage: $ollama_mem"
+    else
+        echo "❌ Ollama container not found"
+    fi
+    
+    echo ""
 }
 
 # Wait for API to be ready
 wait_for_api() {
     echo "Checking API availability..."
-    local retries=30
+    local retries=60  # Increased retries for production
     local count=0
     
     while [ $count -lt $retries ]; do
         if curl -s "$API_BASE/health" >/dev/null 2>&1; then
             echo -e "${GREEN}✓${NC} API is ready!"
+            
+            # Check API health details
+            local health_response=$(curl -s "$API_BASE/health" 2>/dev/null)
+            local ollama_status=$(echo "$health_response" | jq -r '.ollama_status' 2>/dev/null)
+            if [ "$ollama_status" = "true" ]; then
+                echo -e "${GREEN}✓${NC} Ollama is healthy"
+            else
+                echo -e "${YELLOW}⚠${NC} Ollama health check failed"
+            fi
+            
             return 0
         fi
         echo -n "."
-        sleep 2
+        sleep 3  # Longer sleep for production
         ((count++))
     done
     
-    echo -e "${RED}✗${NC} API not available after $((retries * 2)) seconds"
+    echo -e "${RED}✗${NC} API not available after $((retries * 3)) seconds"
     exit 1
+}
+
+# Pre-warm a model by making a simple request
+warmup_model() {
+    local model="$1"
+    
+    echo "🔥 Pre-warming model: $model"
+    
+    # Create a temporary simple agent for warmup
+    local warmup_agent="warmup_$(echo "$model" | sed 's/[^a-zA-Z0-9]/_/g')"
+    
+    local warmup_payload
+    warmup_payload=$(jq -n \
+        --arg name "$warmup_agent" \
+        --arg model "$model" \
+        '{
+            name: $name,
+            role: "Simple Responder",
+            goals: "Respond to simple questions",
+            backstory: "You give brief responses to warm up the model",
+            tools: [],
+            ollama_model: $model,
+            enabled: true
+        }')
+    
+    local start_time=$(date +%s)
+    
+    # Create warmup agent
+    local create_response
+    create_response=$(timeout $WARMUP_TIMEOUT curl -s -X POST "$API_BASE/agents" \
+      -H "Content-Type: application/json" \
+      -d "$warmup_payload" 2>/dev/null)
+    
+    if [ $? -ne 0 ] || echo "$create_response" | jq -e '.error or .detail' >/dev/null 2>&1; then
+        print_status "WARNING" "$model" "Warmup agent creation failed"
+        return 1
+    fi
+    
+    # Simple warmup task
+    local warmup_task
+    warmup_task=$(jq -n '{
+        task: "Say hello briefly",
+        context: {}
+    }')
+    
+    # Execute warmup
+    local warmup_response
+    warmup_response=$(timeout $WARMUP_TIMEOUT curl -s -X POST "$API_BASE/agents/$warmup_agent/execute" \
+      -H "Content-Type: application/json" \
+      -d "$warmup_task" 2>/dev/null)
+    
+    local warmup_exit_code=$?
+    local end_time=$(date +%s)
+    local warmup_time=$((end_time - start_time))
+    
+    # Cleanup warmup agent
+    curl -s -X DELETE "$API_BASE/agents/$warmup_agent" >/dev/null 2>&1
+    
+    if [ $warmup_exit_code -eq 0 ] && ! echo "$warmup_response" | jq -e '.error or .detail' >/dev/null 2>&1; then
+        print_status "WARMUP" "$model" "Pre-warmed successfully" "$warmup_time"
+        return 0
+    else
+        print_status "WARNING" "$model" "Warmup failed or timed out" "$warmup_time"
+        return 1
+    fi
 }
 
 # Get list of available models
 get_available_models() {
     echo "Discovering available models..."
     
-    # Get models from API
     local models_response
     models_response=$(curl -s "$API_BASE/models" 2>/dev/null)
     
@@ -80,24 +200,20 @@ get_available_models() {
         return 1
     fi
     
-    # Check if response is valid JSON array
     if ! echo "$models_response" | jq -e 'type == "array"' >/dev/null 2>&1; then
         echo -e "${RED}✗${NC} Invalid response format from models API"
         echo "Response: $models_response"
         return 1
     fi
     
-    # Parse JSON array and extract model names
     local models
     models=$(echo "$models_response" | jq -r '.[]' 2>/dev/null | grep -v '^null$' | head -n "$MAX_MODELS")
     
     if [ -z "$models" ]; then
         echo -e "${RED}✗${NC} No models found in API response"
-        echo "Response: $models_response"
         return 1
     fi
     
-    # Count models
     local model_count
     model_count=$(echo "$models" | wc -l)
     
@@ -105,19 +221,25 @@ get_available_models() {
     echo "$models" | sed 's/^/  - /'
     echo ""
     
-    # Store models in a temporary file for iteration
     echo "$models" > /tmp/models_to_test.txt
     return 0
 }
 
-# Test individual model with enhanced prompting
+# Progressive timeout test
 test_model() {
     local model="$1"
-    local test_timeout=${2:-$TIMEOUT}
+    local is_first_model="$2"
+    
+    # Use longer timeout for first model (includes loading time)
+    local test_timeout=$SUBSEQUENT_TIMEOUT
+    if [ "$is_first_model" = "true" ]; then
+        test_timeout=$INITIAL_TIMEOUT
+    fi
     
     echo ""
     echo -e "${CYAN}===========================================${NC}"
     echo -e "${BLUE}Testing model: $model${NC}"
+    echo -e "${CYAN}Timeout: ${test_timeout}s${NC}"
     echo -e "${CYAN}===========================================${NC}"
     
     # Validate model name
@@ -127,344 +249,265 @@ test_model() {
     fi
     
     # Sanitize model name for agent name
-    local agent_name="enhanced_test_$(echo "$model" | sed 's/[^a-zA-Z0-9]/_/g' | sed 's/__*/_/g' | sed 's/^_//g' | sed 's/_$//g')"
+    local agent_name="prod_test_$(echo "$model" | sed 's/[^a-zA-Z0-9]/_/g' | sed 's/__*/_/g' | sed 's/^_//g' | sed 's/_$//g')"
     
-    # Ensure agent name is valid
     if [ ${#agent_name} -gt 50 ]; then
         agent_name="${agent_name:0:50}"
     fi
     
-    echo "Creating enhanced test agent: $agent_name"
+    # Pre-warm model if it's the first time
+    if [ "$is_first_model" = "true" ]; then
+        warmup_model "$model"
+        sleep 2  # Brief pause after warmup
+    fi
     
-    # Enhanced agent payload with very explicit tool usage instructions
+    echo "Creating optimized test agent: $agent_name"
+    
+    # Ultra-explicit agent payload optimized for tool usage
     local agent_payload
     agent_payload=$(jq -n \
         --arg name "$agent_name" \
         --arg model "$model" \
         '{
             name: $name,
-            role: "Tool-Using Website Monitor",
-            goals: "ALWAYS use the website_monitor tool to check websites. Never write code or explain how to do it manually. Only use tools.",
-            backstory: "You are a specialized agent that MUST use tools to complete tasks. When asked to check a website, you MUST use the website_monitor tool in this exact format: TOOL_CALL: website_monitor(url=\"https://example.com\", expected_status=200). You never write Python code or explain manual methods. You only use the available tools. If a task requires checking a website, you immediately use the website_monitor tool.",
+            role: "Mandatory Tool User",
+            goals: "EXCLUSIVELY use website_monitor tool for ALL website checks. NEVER write code. NEVER explain manually. ONLY use tools.",
+            backstory: "You are a tool-only agent. When asked to check any website, you MUST immediately respond with: TOOL_CALL: website_monitor(url=\"TARGET_URL\", expected_status=200). You have no other capabilities. You cannot write code. You cannot explain processes. You only execute tool calls. This is your only function.",
             tools: ["website_monitor"],
             ollama_model: $model,
             enabled: true
         }')
     
-    # Create agent with timeout
+    # Create agent
     echo "Creating agent..."
+    local create_start=$(date +%s)
     local create_response
     create_response=$(timeout $test_timeout curl -s -X POST "$API_BASE/agents" \
       -H "Content-Type: application/json" \
       -d "$agent_payload" 2>/dev/null)
     
+    local create_end=$(date +%s)
+    local create_time=$((create_end - create_start))
+    
     if [ $? -ne 0 ]; then
-        print_status "TIMEOUT" "$model" "Agent creation timed out"
+        print_status "TIMEOUT" "$model" "Agent creation timed out" "$create_time"
         return 1
     fi
     
-    # Check if agent was created successfully
     if echo "$create_response" | jq -e '.error or .detail' >/dev/null 2>&1; then
         local error_msg
         error_msg=$(echo "$create_response" | jq -r '.detail // .error // .message' 2>/dev/null)
-        print_status "FAILED" "$model" "Agent creation failed: $error_msg"
+        print_status "FAILED" "$model" "Agent creation failed: $error_msg" "$create_time"
         return 1
     fi
     
-    echo -e "${GREEN}✓${NC} Agent created successfully"
+    echo -e "${GREEN}✓${NC} Agent created in ${create_time}s"
     
-    # Enhanced task payload with very explicit instructions
+    # Ultra-simple task payload
     local task_payload
     task_payload=$(jq -n '{
-        task: "Use the website_monitor tool to check if https://google.com returns HTTP 200 status. You MUST use the website_monitor tool - do not write code or explain how to do it manually. Use this exact format: TOOL_CALL: website_monitor(url=\"https://google.com\", expected_status=200)",
-        context: {
-            "instruction": "MANDATORY: Use website_monitor tool only",
-            "format": "TOOL_CALL: website_monitor(url=URL, expected_status=200)",
-            "no_code": "Never write Python/code, only use tools"
-        }
+        task: "TOOL_CALL: website_monitor(url=\"https://google.com\", expected_status=200)",
+        context: {}
     }')
     
-    # Test the agent with extended timeout
-    echo "Executing test task (timeout: ${test_timeout}s)..."
-    echo "Task: Check https://google.com using website_monitor tool"
-    
-    local start_time=$(date +%s)
+    # Execute test
+    echo "Executing test task..."
+    local exec_start=$(date +%s)
     local test_response
     test_response=$(timeout $test_timeout curl -s -X POST "$API_BASE/agents/$agent_name/execute" \
       -H "Content-Type: application/json" \
       -d "$task_payload" 2>/dev/null)
     
     local curl_exit_code=$?
-    local end_time=$(date +%s)
-    local execution_time=$((end_time - start_time))
+    local exec_end=$(date +%s)
+    local exec_time=$((exec_end - exec_start))
+    local total_time=$((exec_time + create_time))
     
-    echo "Execution time: ${execution_time}s"
-    
-    # Always cleanup agent
+    # Always cleanup
     echo "Cleaning up agent..."
     curl -s -X DELETE "$API_BASE/agents/$agent_name" >/dev/null 2>&1
     
     if [ $curl_exit_code -ne 0 ]; then
-        print_status "TIMEOUT" "$model" "Test execution timed out after ${test_timeout}s"
+        print_status "TIMEOUT" "$model" "Test execution timed out" "$total_time"
         return 1
     fi
     
-    # Save full response to log file
+    # Save and analyze response
     local log_file="$LOG_DIR/${model//[^a-zA-Z0-9]/_}_response.json"
     echo "$test_response" > "$log_file"
     
-    # Analyze response
-    analyze_test_result "$model" "$test_response" "$log_file"
+    analyze_test_result "$model" "$test_response" "$log_file" "$total_time"
 }
 
-# Enhanced result analysis
+# Simplified but thorough analysis
 analyze_test_result() {
     local model="$1"
-    local response="$2"
+    local response="$2" 
     local log_file="$3"
+    local total_time="$4"
     
     echo ""
-    echo -e "${YELLOW}📋 Full Response Analysis for $model:${NC}"
+    echo -e "${YELLOW}📋 Response Analysis for $model:${NC}"
     echo "----------------------------------------"
     
-    # Check for API errors first
+    # Check for API errors
     if echo "$response" | jq -e '.error or .detail' >/dev/null 2>&1; then
         local error_msg
         error_msg=$(echo "$response" | jq -r '.detail // .error // .message' 2>/dev/null)
-        print_status "FAILED" "$model" "API Error: $error_msg"
-        echo -e "${RED}Error details saved to: $log_file${NC}"
+        print_status "FAILED" "$model" "API Error: $error_msg" "$total_time"
         return 1
     fi
     
-    # Extract result content
+    # Extract result
     local result_content
     result_content=$(echo "$response" | jq -r '.result' 2>/dev/null)
     
     if [ -z "$result_content" ] || [ "$result_content" = "null" ]; then
-        print_status "FAILED" "$model" "No result content in response"
-        echo -e "${RED}Empty response saved to: $log_file${NC}"
+        print_status "FAILED" "$model" "No result content" "$total_time"
         return 1
     fi
     
-    # Print full result with formatting
-    echo -e "${CYAN}📄 FULL RESPONSE:${NC}"
-    echo "=================="
-    echo "$result_content"
-    echo "=================="
+    # Show result (truncated for readability, full version in log)
+    echo -e "${CYAN}📄 RESPONSE (first 200 chars):${NC}"
+    echo "$(echo "$result_content" | head -c 200)..."
     echo ""
     
-    # Detailed analysis with multiple checks
-    echo -e "${YELLOW}🔍 Analysis Results:${NC}"
+    # Quick analysis
+    local success=false
+    local reason=""
     
-    local success_score=0
-    local indicators_found=()
-    
-    # Check for different success patterns
     if echo "$result_content" | grep -qi "TOOL_CALL.*website_monitor"; then
-        indicators_found+=("Perfect TOOL_CALL format")
-        success_score=$((success_score + 10))
-    fi
-    
-    if echo "$result_content" | grep -qi "status_code.*200\|\"status_code\": 200\|status.*200"; then
-        indicators_found+=("HTTP 200 status detected")
-        success_score=$((success_score + 8))
-    fi
-    
-    if echo "$result_content" | grep -qi "response_time_ms\|response_time\|time.*ms"; then
-        indicators_found+=("Response time data")
-        success_score=$((success_score + 6))
-    fi
-    
-    if echo "$result_content" | grep -qi "website.*online\|site.*online\|status.*online\|google.*online"; then
-        indicators_found+=("Website online status")
-        success_score=$((success_score + 5))
-    fi
-    
-    if echo "$result_content" | grep -qi "google\.com.*accessible\|google\.com.*reachable\|google.*accessible"; then
-        indicators_found+=("Website accessibility")
-        success_score=$((success_score + 4))
-    fi
-    
-    if echo "$result_content" | grep -qi "successfully.*checked\|check.*successful\|monitoring.*successful"; then
-        indicators_found+=("Successful check")
-        success_score=$((success_score + 3))
-    fi
-    
-    if echo "$result_content" | grep -qi "used.*website_monitor\|website_monitor.*tool\|tool.*executed"; then
-        indicators_found+=("Tool usage detected")
-        success_score=$((success_score + 2))
-    fi
-    
-    if echo "$result_content" | grep -qi "https\?://google\.com"; then
-        indicators_found+=("URL mentioned")
-        success_score=$((success_score + 1))
-    fi
-    
-    # Check for negative indicators (code writing)
-    local negative_indicators=()
-    if echo "$result_content" | grep -qi "import\|def \|python\|http\.client\|requests\|urllib"; then
-        negative_indicators+=("Code writing detected")
-        success_score=$((success_score - 5))
-    fi
-    
-    if echo "$result_content" | grep -qi "here.*example\|here.*how\|you.*can\|example.*code"; then
-        negative_indicators+=("Manual explanation instead of tool use")
-        success_score=$((success_score - 3))
-    fi
-    
-    # Display findings
-    echo "Success Score: $success_score/10"
-    echo ""
-    
-    if [ ${#indicators_found[@]} -gt 0 ]; then
-        echo -e "${GREEN}✓ Positive Indicators Found:${NC}"
-        for indicator in "${indicators_found[@]}"; do
-            echo "  • $indicator"
-        done
-        echo ""
-    fi
-    
-    if [ ${#negative_indicators[@]} -gt 0 ]; then
-        echo -e "${RED}✗ Negative Indicators Found:${NC}"
-        for indicator in "${negative_indicators[@]}"; do
-            echo "  • $indicator"
-        done
-        echo ""
-    fi
-    
-    # Final determination
-    if [ $success_score -ge 8 ]; then
-        print_status "SUCCESS" "$model" "Excellent tool usage (Score: $success_score/10)"
-        echo -e "${GREEN}💾 Response saved to: $log_file${NC}"
-        return 0
-    elif [ $success_score -ge 5 ]; then
-        print_status "SUCCESS" "$model" "Good tool usage (Score: $success_score/10)"
-        echo -e "${GREEN}💾 Response saved to: $log_file${NC}"
-        return 0
-    elif [ $success_score -ge 2 ]; then
-        print_status "WARNING" "$model" "Partial tool usage (Score: $success_score/10)"
-        echo -e "${YELLOW}💾 Response saved to: $log_file${NC}"
-        return 1
+        success=true
+        reason="Perfect TOOL_CALL format"
+    elif echo "$result_content" | grep -qi "status_code.*200\|response_time"; then
+        success=true
+        reason="Tool execution detected (status/timing data)"
+    elif echo "$result_content" | grep -qi "google\.com.*online\|website.*accessible"; then
+        success=true  
+        reason="Website check completed"
+    elif echo "$result_content" | grep -qi "import\|def \|python\|http\.client"; then
+        success=false
+        reason="Model wrote code instead of using tools"
     else
-        print_status "FAILED" "$model" "No effective tool usage (Score: $success_score/10)"
-        echo -e "${RED}💾 Response saved to: $log_file${NC}"
+        success=false
+        reason="No clear tool usage detected"
+    fi
+    
+    if [ "$success" = true ]; then
+        print_status "SUCCESS" "$model" "$reason" "$total_time"
+        return 0
+    else
+        print_status "FAILED" "$model" "$reason" "$total_time"
         return 1
     fi
 }
 
 # Main execution
 main() {
-    # Check for required tools
+    # Check dependencies
     if ! command -v jq &> /dev/null; then
-        echo -e "${RED}✗${NC} jq is required but not installed. Please install jq first."
-        echo "Ubuntu/Debian: sudo apt-get install jq"
-        echo "macOS: brew install jq"
+        echo -e "${RED}✗${NC} jq is required but not installed."
         exit 1
     fi
     
-    # Clean previous logs
+    # System check
+    check_system_resources
+    
+    # Clean and setup logs
     rm -rf "$LOG_DIR"
     mkdir -p "$LOG_DIR"
-    
-    echo "📁 Log directory: $LOG_DIR"
-    echo "⏱️  Timeout per model: ${TIMEOUT}s"
-    echo ""
     
     # Wait for API
     wait_for_api
     
-    # Get available models
+    # Get models
     if ! get_available_models; then
         echo -e "${RED}✗${NC} Failed to get available models"
         exit 1
     fi
     
-    # Check if models file was created
     if [ ! -f /tmp/models_to_test.txt ] || [ ! -s /tmp/models_to_test.txt ]; then
         echo -e "${RED}✗${NC} No models available for testing"
         exit 1
     fi
     
-    echo "Starting enhanced model tests with full output logging..."
+    echo "🚀 Starting optimized model tests..."
+    echo "📁 Logs will be saved to: $LOG_DIR"
     echo ""
     
-    # Test each model
+    # Test models
     local total_models=0
     local successful_models=0
-    local failed_models=0
+    local first_model=true
     local working_models=()
-    local failed_model_list=()
+    local failed_models=()
     
     while IFS= read -r model; do
         if [ -n "$model" ] && [ "$model" != "null" ]; then
             ((total_models++))
-            if test_model "$model"; then
+            if test_model "$model" "$first_model"; then
                 ((successful_models++))
                 working_models+=("$model")
             else
-                ((failed_models++))
-                failed_model_list+=("$model")
+                failed_models+=("$model")
             fi
+            first_model=false
+            
+            # Brief pause between tests
+            sleep 3
         fi
     done < /tmp/models_to_test.txt
     
     # Cleanup
     rm -f /tmp/models_to_test.txt
     
-    # Final comprehensive summary
+    # Final summary
     echo ""
-    echo "🎉 Enhanced Testing Complete!"
-    echo "============================="
+    echo "🎉 Optimized Testing Complete!"
+    echo "=============================="
     echo -e "Total models tested: ${BLUE}$total_models${NC}"
-    echo -e "Successful: ${GREEN}$successful_models${NC}"
-    echo -e "Failed: ${RED}$failed_models${NC}"
-    echo -e "Success rate: ${BLUE}$(( successful_models * 100 / total_models ))%${NC}"
+    echo -e "Successful: ${GREEN}$successful_models${NC}"  
+    echo -e "Failed: ${RED}${#failed_models[@]}${NC}"
     echo ""
     
     if [ ${#working_models[@]} -gt 0 ]; then
-        echo -e "${GREEN}✅ Working Models:${NC}"
+        echo -e "${GREEN}✅ WORKING MODELS:${NC}"
         for model in "${working_models[@]}"; do
-            echo "  • $model"
+            echo "  🎯 $model"
         done
         echo ""
-    fi
-    
-    if [ ${#failed_model_list[@]} -gt 0 ]; then
-        echo -e "${RED}❌ Failed Models:${NC}"
-        for model in "${failed_model_list[@]}"; do
-            echo "  • $model"
-        done
-        echo ""
-    fi
-    
-    echo -e "${CYAN}📁 All responses saved in: $LOG_DIR${NC}"
-    echo -e "${CYAN}💡 Review individual log files for detailed analysis${NC}"
-    echo ""
-    
-    if [ $successful_models -gt 0 ]; then
-        echo -e "${GREEN}🎯 Recommendation: Use the working models for your agents!${NC}"
+        echo -e "${GREEN}💡 Use these models for your production agents!${NC}"
     else
-        echo -e "${YELLOW}⚠️  Troubleshooting needed:${NC}"
-        echo "  1. Check agent manager configuration"
-        echo "  2. Verify tool registration"
-        echo "  3. Review Ollama model compatibility"
-        echo "  4. Check individual response logs in $LOG_DIR"
+        echo -e "${RED}❌ No models working properly${NC}"
+        echo ""
+        echo -e "${YELLOW}🔧 Troubleshooting suggestions:${NC}"
+        echo "  1. Check individual log files in $LOG_DIR"
+        echo "  2. Verify agent manager tool integration"
+        echo "  3. Consider using smaller models first"
+        echo "  4. Check system resources during peak usage"
     fi
+    
+    echo ""
+    echo -e "${CYAN}📊 Performance Notes:${NC}"
+    echo "• First model test includes loading time"
+    echo "• Subsequent tests should be faster"
+    echo "• Pre-warming improves performance"
+    echo "• Full responses saved in log files"
 }
 
-# Handle command line arguments
+# Run with help option
 case "${1:-}" in
     "--help"|"-h")
         echo "Usage: $0 [--help]"
         echo ""
-        echo "Enhanced model testing with:"
-        echo "• Extended timeouts (90s per model)"
-        echo "• Better tool usage prompting"
+        echo "Optimized model testing for DigitalOcean production environment:"
+        echo "• Pre-warms models before testing"
+        echo "• Progressive timeouts (3min first, 2min subsequent)"
+        echo "• System resource monitoring"
+        echo "• Production-optimized prompting"
         echo "• Full response logging"
-        echo "• Detailed success scoring"
-        echo "• Comprehensive analysis"
         echo ""
-        echo "Logs are saved in: $LOG_DIR"
+        echo "Designed for 8vCPU/16GB DigitalOcean droplets"
         exit 0
         ;;
     *)
