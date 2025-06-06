@@ -1,5 +1,5 @@
 #!/bin/bash
-# dynamic-quick-test.sh - Dynamic model performance test that discovers available models
+# fixed-dynamic-test.sh - Fixed dynamic model performance test
 
 # Configuration
 API_BASE="http://localhost:8000"
@@ -62,22 +62,30 @@ wait_for_api() {
 get_available_models() {
     echo "Discovering available models..."
     
+    # Get models from API
     local models_response
     models_response=$(curl -s "$API_BASE/models" 2>/dev/null)
     
     if [ $? -ne 0 ] || [ -z "$models_response" ]; then
         echo -e "${RED}✗${NC} Failed to fetch available models"
-        exit 1
+        return 1
+    fi
+    
+    # Check if response is valid JSON array
+    if ! echo "$models_response" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        echo -e "${RED}✗${NC} Invalid response format from models API"
+        echo "Response: $models_response"
+        return 1
     fi
     
     # Parse JSON array and extract model names
     local models
-    models=$(echo "$models_response" | jq -r '.[]' 2>/dev/null)
+    models=$(echo "$models_response" | jq -r '.[]' 2>/dev/null | grep -v '^null$' | head -n "$MAX_MODELS")
     
-    if [ $? -ne 0 ] || [ -z "$models" ]; then
-        echo -e "${RED}✗${NC} Failed to parse models response"
-        echo "Raw response: $models_response"
-        exit 1
+    if [ -z "$models" ]; then
+        echo -e "${RED}✗${NC} No models found in API response"
+        echo "Response: $models_response"
+        return 1
     fi
     
     # Count models
@@ -88,41 +96,56 @@ get_available_models() {
     echo "$models" | sed 's/^/  - /'
     echo ""
     
-    # Limit number of models if too many
-    if [ "$model_count" -gt "$MAX_MODELS" ]; then
-        echo -e "${YELLOW}⚠${NC} Too many models ($model_count). Testing only first $MAX_MODELS models."
-        models=$(echo "$models" | head -n "$MAX_MODELS")
-    fi
-    
-    echo "$models"
+    # Store models in a temporary file for iteration
+    echo "$models" > /tmp/models_to_test.txt
+    return 0
 }
 
 # Test individual model
 test_model() {
-    local model=$1
+    local model="$1"
     local test_timeout=${2:-$TIMEOUT}
     
     echo ""
     echo -e "${BLUE}Testing model: $model${NC}"
     echo "$(printf '%.0s-' {1..50})"
     
+    # Validate model name
+    if [ -z "$model" ] || [ "$model" = "null" ]; then
+        print_status "FAILED" "$model" "Invalid model name"
+        return 1
+    fi
+    
     # Sanitize model name for agent name (replace special chars with underscores)
-    local agent_name="quick_test_$(echo "$model" | sed 's/[^a-zA-Z0-9]/_/g')"
+    local agent_name="test_$(echo "$model" | sed 's/[^a-zA-Z0-9]/_/g' | sed 's/__*/_/g' | sed 's/^_//g' | sed 's/_$//g')"
+    
+    # Ensure agent name is valid
+    if [ ${#agent_name} -gt 50 ]; then
+        agent_name="${agent_name:0:50}"
+    fi
+    
+    echo "Creating test agent: $agent_name"
+    
+    # Create agent JSON payload properly escaped
+    local agent_payload
+    agent_payload=$(jq -n \
+        --arg name "$agent_name" \
+        --arg model "$model" \
+        '{
+            name: $name,
+            role: "Tool Tester",
+            goals: "Use website_monitor tool to check websites efficiently",
+            backstory: "You are a testing agent that uses tools via TOOL_CALL format. Example: TOOL_CALL: website_monitor(url=https://google.com, expected_status=200). Always use tools, never write code.",
+            tools: ["website_monitor"],
+            ollama_model: $model,
+            enabled: true
+        }')
     
     # Create agent with timeout
-    echo "Creating test agent: $agent_name"
     local create_response
     create_response=$(timeout $test_timeout curl -s -X POST "$API_BASE/agents" \
       -H "Content-Type: application/json" \
-      -d "{
-        \"name\": \"$agent_name\",
-        \"role\": \"Tool Tester\",
-        \"goals\": \"Use website_monitor tool to check websites efficiently\",
-        \"backstory\": \"You are a testing agent that uses tools via TOOL_CALL format. Example: TOOL_CALL: website_monitor(url=https://google.com, expected_status=200). Always use tools, never write code.\",
-        \"tools\": [\"website_monitor\"],
-        \"ollama_model\": \"$model\",
-        \"enabled\": true
-      }" 2>/dev/null)
+      -d "$agent_payload" 2>/dev/null)
     
     if [ $? -ne 0 ]; then
         print_status "FAILED" "$model" "Agent creation timed out"
@@ -130,20 +153,26 @@ test_model() {
     fi
     
     # Check if agent was created successfully
-    if echo "$create_response" | grep -q "error\|Error\|failed\|Failed"; then
-        print_status "FAILED" "$model" "Agent creation failed: $(echo "$create_response" | jq -r '.detail // .error // .message' 2>/dev/null)"
+    if echo "$create_response" | jq -e '.error or .detail' >/dev/null 2>&1; then
+        local error_msg
+        error_msg=$(echo "$create_response" | jq -r '.detail // .error // .message' 2>/dev/null)
+        print_status "FAILED" "$model" "Agent creation failed: $error_msg"
         return 1
     fi
+    
+    # Create test task JSON payload
+    local task_payload
+    task_payload=$(jq -n '{
+        task: "Check if https://google.com returns HTTP 200 status. Use the website_monitor tool.",
+        context: {}
+    }')
     
     # Test the agent with timeout
     echo "Executing test task..."
     local test_response
     test_response=$(timeout $test_timeout curl -s -X POST "$API_BASE/agents/$agent_name/execute" \
       -H "Content-Type: application/json" \
-      -d '{
-        "task": "Check if https://google.com returns HTTP 200 status. Use the website_monitor tool.",
-        "context": {}
-      }' 2>/dev/null)
+      -d "$task_payload" 2>/dev/null)
     
     local curl_exit_code=$?
     
@@ -161,11 +190,11 @@ test_model() {
 
 # Analyze test results
 analyze_test_result() {
-    local model=$1
-    local response=$2
+    local model="$1"
+    local response="$2"
     
     # Check for API errors first
-    if echo "$response" | grep -q "error\|Error\|failed\|Failed\|exception\|Exception"; then
+    if echo "$response" | jq -e '.error or .detail' >/dev/null 2>&1; then
         local error_msg
         error_msg=$(echo "$response" | jq -r '.detail // .error // .message' 2>/dev/null | head -c 100)
         print_status "FAILED" "$model" "API Error: $error_msg"
@@ -250,9 +279,14 @@ check_and_install_models() {
             echo
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 echo "Installing $rec_model..."
+                local install_payload
+                install_payload=$(jq -n --arg model "$rec_model" '{
+                    model_name: $model,
+                    wait_for_completion: true
+                }')
                 curl -X POST "$API_BASE/models/install" \
                   -H "Content-Type: application/json" \
-                  -d "{\"model_name\": \"$rec_model\", \"wait_for_completion\": true}"
+                  -d "$install_payload"
                 echo ""
             fi
         fi
@@ -278,23 +312,26 @@ main() {
     fi
     
     # Get available models
-    local available_models
-    available_models=$(get_available_models)
+    if ! get_available_models; then
+        echo -e "${RED}✗${NC} Failed to get available models"
+        exit 1
+    fi
     
-    if [ -z "$available_models" ]; then
+    # Check if models file was created
+    if [ ! -f /tmp/models_to_test.txt ] || [ ! -s /tmp/models_to_test.txt ]; then
         echo -e "${RED}✗${NC} No models available for testing"
         exit 1
     fi
+    
+    echo "Starting model tests..."
     
     # Test each model
     local total_models=0
     local successful_models=0
     local failed_models=0
     
-    echo "Starting model tests..."
-    
     while IFS= read -r model; do
-        if [ -n "$model" ]; then
+        if [ -n "$model" ] && [ "$model" != "null" ]; then
             ((total_models++))
             if test_model "$model"; then
                 ((successful_models++))
@@ -302,7 +339,10 @@ main() {
                 ((failed_models++))
             fi
         fi
-    done <<< "$available_models"
+    done < /tmp/models_to_test.txt
+    
+    # Cleanup
+    rm -f /tmp/models_to_test.txt
     
     # Final summary
     echo ""
