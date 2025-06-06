@@ -33,6 +33,16 @@ class Config:
         
         # Validate memory settings
         self._validate_memory_settings()
+        
+        # Model Warmup Configuration
+        self.model_warmup_timeout = int(os.getenv("MODEL_WARMUP_TIMEOUT", "60"))
+        self.max_concurrent_warmups = int(os.getenv("MAX_CONCURRENT_WARMUPS", "2"))
+        self.auto_warmup_on_startup = os.getenv("AUTO_WARMUP_ON_STARTUP", "true").lower() == "true"
+        self.warmup_interval_hours = int(os.getenv("WARMUP_INTERVAL_HOURS", "6"))
+        self.max_idle_hours = int(os.getenv("MAX_IDLE_HOURS", "24"))
+        self.warmup_enabled = os.getenv("WARMUP_ENABLED", "true").lower() == "true"
+        self.background_maintenance = os.getenv("BACKGROUND_MAINTENANCE", "true").lower() == "true"
+        self.log_warmup_details = os.getenv("LOG_WARMUP_DETAILS", "true").lower() == "true"
     
     def _validate_memory_settings(self):
         """Validate memory-related configuration settings"""
@@ -87,6 +97,16 @@ class Config:
             "clear_memory_on_startup": self.clear_memory_on_startup,
             "memory_cleanup_interval": self.memory_cleanup_interval,
             "memory_retention_days": self.memory_retention_days
+            
+            # Model warmup settings
+            "model_warmup_timeout": self.model_warmup_timeout,
+            "max_concurrent_warmups": self.max_concurrent_warmups,
+            "auto_warmup_on_startup": self.auto_warmup_on_startup,
+            "warmup_interval_hours": self.warmup_interval_hours,
+            "max_idle_hours": self.max_idle_hours,
+            "warmup_enabled": self.warmup_enabled,
+            "background_maintenance": self.background_maintenance,
+            "log_warmup_details": self.log_warmup_details
         }
     
     def validate(self):

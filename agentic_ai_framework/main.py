@@ -24,6 +24,7 @@ from managers.memory_manager import MemoryManager
 from managers.tool_manager import ToolManager
 from managers.agent_manager import AgentManager
 from managers.workflow_manager import WorkflowManager
+from managers.model_warmup_manager import ModelWarmupManager, ModelWarmupStatus
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,6 +55,8 @@ memory_manager = MemoryManager(config.database_path)
 tool_manager = ToolManager(memory_manager, config.tools_directory)
 agent_manager = AgentManager(ollama_client, memory_manager, tool_manager, config)
 workflow_manager = WorkflowManager(agent_manager, tool_manager, memory_manager)
+warmup_manager = ModelWarmupManager(ollama_client, memory_manager, config)
+
 
 # Enhanced Background scheduler with memory cleanup
 class BackgroundScheduler:
@@ -169,6 +172,11 @@ async def startup_event():
         asyncio.create_task(background_scheduler.start())
         
         logger.info("Agentic AI Framework started successfully with enhanced memory management")
+        
+        # Start model warmup manager
+        await warmup_manager.start()
+        
+        logger.info("Agentic AI Framework started successfully with model warmup")
     except Exception as e:
         logger.error(f"Startup error: {e}")
         raise
@@ -177,6 +185,8 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown"""
     background_scheduler.stop()
+    logger.info("Agentic AI Framework shutdown complete")
+    await warmup_manager.stop()
     logger.info("Agentic AI Framework shutdown complete")
 
 # Root endpoints
@@ -194,12 +204,18 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with warmup info"""
+    warmup_stats = warmup_manager.get_warmup_stats()
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow(),
         "ollama_status": await ollama_client.health_check(),
-        "memory_entries": memory_manager.get_memory_stats()["total_memory_entries"]
+        "memory_entries": memory_manager.get_memory_stats()["total_memory_entries"],
+        "warmup_stats": {
+            "active_models": warmup_stats["active_models"],
+            "total_models": warmup_stats["total_models"],
+            "success_rate": warmup_stats["success_rate"]
+        }
     }
 
 # FIXED: Models endpoints with proper error handling
@@ -482,6 +498,164 @@ async def get_recommended_models():
         ]
     }
 
+# Model Warmup endpoints
+@app.post("/models/warmup")
+async def warmup_models(model_names: List[str] = None, background_tasks: BackgroundTasks = None):
+    """Warm up specific models or all agent models"""
+    try:
+        if model_names:
+            # Warm up specific models
+            if len(model_names) > 5:
+                # For many models, do it in background
+                if background_tasks:
+                    background_tasks.add_task(warmup_manager.warmup_models, model_names)
+                    return {
+                        "message": f"Warming up {len(model_names)} models in background",
+                        "models": model_names,
+                        "status": "started"
+                    }
+            
+            # Warm up synchronously for small lists
+            results = await warmup_manager.warmup_models(model_names)
+            successful = [name for name, status in results.items() if status.warmup_success]
+            failed = [name for name, status in results.items() if not status.warmup_success]
+            
+            return {
+                "message": f"Warmup completed for {len(model_names)} models",
+                "successful": successful,
+                "failed": failed,
+                "results": {name: {
+                    "success": status.warmup_success,
+                    "warmup_time": status.warmup_time_seconds,
+                    "error": status.error_message
+                } for name, status in results.items()}
+            }
+        else:
+            # Warm up all agent models
+            results = await warmup_manager.warmup_agent_models()
+            successful = [name for name, status in results.items() if status.warmup_success]
+            failed = [name for name, status in results.items() if not status.warmup_success]
+            
+            return {
+                "message": f"Warmed up {len(successful)} agent models",
+                "successful": successful,
+                "failed": failed,
+                "total_models": len(results),
+                "results": {name: {
+                    "success": status.warmup_success,
+                    "warmup_time": status.warmup_time_seconds,
+                    "error": status.error_message
+                } for name, status in results.items()}
+            }
+            
+    except Exception as e:
+        logger.error(f"Model warmup error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/models/warmup/{model_name}")
+async def warmup_single_model(model_name: str, force: bool = False):
+    """Warm up a single model"""
+    try:
+        status = await warmup_manager.warmup_model(model_name, force=force)
+        
+        return {
+            "model_name": model_name,
+            "success": status.warmup_success,
+            "warmup_time_seconds": status.warmup_time_seconds,
+            "warmed_at": status.warmed_at.isoformat(),
+            "is_active": status.is_active,
+            "error": status.error_message
+        }
+        
+    except Exception as e:
+        logger.error(f"Error warming model {model_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/models/warmup/status")
+async def get_warmup_status():
+    """Get warmup status for all models"""
+    try:
+        statuses = warmup_manager.get_warmup_status()
+        stats = warmup_manager.get_warmup_stats()
+        
+        return {
+            "stats": stats,
+            "models": {
+                name: {
+                    "model_name": status.model_name,
+                    "is_active": status.is_active,
+                    "warmup_success": status.warmup_success,
+                    "warmed_at": status.warmed_at.isoformat(),
+                    "last_used": status.last_used.isoformat(),
+                    "warmup_time_seconds": status.warmup_time_seconds,
+                    "usage_count": status.usage_count,
+                    "error_message": status.error_message
+                } for name, status in statuses.items()
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting warmup status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/models/warmup/status/{model_name}")
+async def get_model_warmup_status(model_name: str):
+    """Get warmup status for a specific model"""
+    try:
+        status = warmup_manager.get_warmup_status(model_name).get(model_name)
+        
+        if not status:
+            return {
+                "model_name": model_name,
+                "is_warmed": False,
+                "message": "Model not warmed"
+            }
+        
+        return {
+            "model_name": model_name,
+            "is_warmed": True,
+            "is_active": status.is_active,
+            "warmup_success": status.warmup_success,
+            "warmed_at": status.warmed_at.isoformat(),
+            "last_used": status.last_used.isoformat(),
+            "warmup_time_seconds": status.warmup_time_seconds,
+            "usage_count": status.usage_count,
+            "error_message": status.error_message
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting status for model {model_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/models/warmup/stats")
+async def get_warmup_stats():
+    """Get comprehensive warmup statistics"""
+    try:
+        return warmup_manager.get_warmup_stats()
+    except Exception as e:
+        logger.error(f"Error getting warmup stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/models/warmup/{model_name}")
+async def remove_model_from_warmup(model_name: str):
+    """Remove a model from the warmup cache"""
+    try:
+        if model_name in warmup_manager.warmed_models:
+            del warmup_manager.warmed_models[model_name]
+            return {
+                "message": f"Model {model_name} removed from warmup cache",
+                "model_name": model_name
+            }
+        else:
+            return {
+                "message": f"Model {model_name} was not in warmup cache",
+                "model_name": model_name
+            }
+            
+    except Exception as e:
+        logger.error(f"Error removing model {model_name} from warmup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Configuration endpoints
 @app.get("/config", response_model=ConfigResponse)
 async def get_config():
@@ -549,8 +723,14 @@ async def delete_agent(agent_name: str):
 
 @app.post("/agents/{agent_name}/execute", response_model=AgentExecutionResponse)
 async def execute_agent(agent_name: str, request: AgentExecutionRequest):
-    """Execute an agent task"""
+    """Execute an agent task with model usage tracking"""
     try:
+        # Get agent info to track model usage
+        agent = memory_manager.get_agent(agent_name)
+        if agent:
+            model_name = agent.get('ollama_model', config.default_model)
+            await warmup_manager.mark_model_used(model_name)
+        
         result = await agent_manager.execute_agent(
             agent_name, request.task, request.context or {}
         )
