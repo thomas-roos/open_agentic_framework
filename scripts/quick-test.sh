@@ -4,9 +4,9 @@
 # Configuration for production environment
 API_BASE="http://localhost:8000"
 MAX_MODELS=10
-INITIAL_TIMEOUT=180    # 3 minutes for first test (model loading)
-SUBSEQUENT_TIMEOUT=120  # 2 minutes for subsequent tests
+MODEL_TIMEOUT=180      # 3 minutes for all tests (consistent timeout)
 WARMUP_TIMEOUT=60      # 1 minute for model warmup
+WARMUP_ALL_MODELS=true # Warmup every model for fair comparison
 LOG_DIR="/tmp/model_test_logs"
 
 # New options for detailed output
@@ -17,9 +17,8 @@ SHOW_TIMING_DETAILS=true # Show detailed timing information
 echo "🚀 Enhanced Model Performance Test (DigitalOcean)"
 echo "================================================="
 echo "💻 Configured for production environment"
-echo "⏱️  Initial timeout: ${INITIAL_TIMEOUT}s (includes model loading)"
-echo "⏱️  Subsequent timeout: ${SUBSEQUENT_TIMEOUT}s"
-echo "🔥 Pre-warming models before testing"
+echo "⏱️  Model timeout: ${MODEL_TIMEOUT}s (consistent for all models)"
+echo "🔥 Pre-warming: $([ "$WARMUP_ALL_MODELS" = true ] && echo "ALL MODELS" || echo "FIRST MODEL ONLY")"
 echo "📝 Full response details: $([ "$SHOW_FULL_RESPONSE" = true ] && echo "ENABLED" || echo "DISABLED")"
 echo ""
 
@@ -256,21 +255,18 @@ get_available_models() {
     return 0
 }
 
-# Enhanced test function with detailed output
+# Enhanced test function with consistent timeout and warmup
 test_model() {
     local model="$1"
-    local is_first_model="$2"
+    local model_number="$2"
     
-    # Use longer timeout for first model (includes loading time)
-    local test_timeout=$SUBSEQUENT_TIMEOUT
-    if [ "$is_first_model" = "true" ]; then
-        test_timeout=$INITIAL_TIMEOUT
-    fi
+    # Use consistent timeout for all models
+    local test_timeout=$MODEL_TIMEOUT
     
     echo ""
     echo -e "${CYAN}===========================================${NC}"
-    echo -e "${BOLD}${BLUE}Testing model: $model${NC}"
-    echo -e "${CYAN}Timeout: ${test_timeout}s${NC}"
+    echo -e "${BOLD}${BLUE}Testing model $model_number: $model${NC}"
+    echo -e "${CYAN}Timeout: ${test_timeout}s (consistent for fair comparison)${NC}"
     echo -e "${CYAN}===========================================${NC}"
     
     # Validate model name
@@ -286,10 +282,11 @@ test_model() {
         agent_name="${agent_name:0:50}"
     fi
     
-    # Pre-warm model if it's the first time
-    if [ "$is_first_model" = "true" ]; then
+    # Warmup model if enabled for all models
+    if [ "$WARMUP_ALL_MODELS" = true ]; then
+        echo "🔥 Pre-warming model (ensures fair comparison)..."
         warmup_model "$model"
-        sleep 2
+        sleep 2  # Brief pause after warmup
     fi
     
     echo "📝 Creating optimized test agent: $agent_name"
@@ -599,15 +596,16 @@ main() {
     echo "🚀 Starting enhanced model tests..."
     echo "📁 Logs will be saved to: $LOG_DIR"
     echo "🔧 Configuration:"
+    echo "   Model timeout: ${MODEL_TIMEOUT}s (consistent for all)"
+    echo "   Warmup all models: $([ "$WARMUP_ALL_MODELS" = true ] && echo "YES" || echo "NO")"
     echo "   Full responses: $([ "$SHOW_FULL_RESPONSE" = true ] && echo "ENABLED" || echo "DISABLED")"
     echo "   Tool call analysis: $([ "$SHOW_TOOL_CALLS" = true ] && echo "ENABLED" || echo "DISABLED")"
     echo "   Timing details: $([ "$SHOW_TIMING_DETAILS" = true ] && echo "ENABLED" || echo "DISABLED")"
     echo ""
     
-    # Test models
+    # Test models with consistent approach
     local total_models=0
     local successful_models=0
-    local first_model=true
     local working_models=()
     local failed_models=()
     local model_scores=()
@@ -615,15 +613,14 @@ main() {
     while IFS= read -r model; do
         if [ -n "$model" ] && [ "$model" != "null" ]; then
             ((total_models++))
-            if test_model "$model" "$first_model"; then
+            if test_model "$model" "$total_models"; then
                 ((successful_models++))
                 working_models+=("$model")
             else
                 failed_models+=("$model")
             fi
-            first_model=false
             
-            # Brief pause between tests
+            # Brief pause between tests to allow system to settle
             sleep 3
         fi
     done < /tmp/models_to_test.txt
@@ -662,18 +659,18 @@ main() {
     
     echo ""
     echo -e "${CYAN}📊 Performance Summary:${NC}"
-    echo "• First model test includes loading time"
-    echo "• Subsequent tests should be faster"
-    echo "• Pre-warming improves performance"
+    echo "• All models tested with consistent 180s timeout"
+    echo "• All models pre-warmed for fair comparison"
     echo "• Full responses saved in log files: $LOG_DIR"
     echo "• Detailed analysis shows tool usage patterns"
     
     echo ""
-    echo -e "${BLUE}💡 Tips for better results:${NC}"
+    echo -e "${BLUE}💡 Model Performance Insights:${NC}"
     echo "• Models scoring 80+ are excellent for production"
-    echo "• Models scoring 50-79 are acceptable"
-    echo "• Models scoring <50 may need different prompting"
-    echo "• Check individual log files for debugging"
+    echo "• Models scoring 50-79 are acceptable with good prompting"
+    echo "• Models scoring <50 may need specialized prompting or different use cases"
+    echo "• Consistent timeouts ensure fair performance comparison"
+    echo "• Pre-warming eliminates first-load bias"
 }
 
 # Enhanced help with new options
@@ -691,8 +688,8 @@ case "${1:-}" in
         echo "  --help, -h          : Show this help message"
         echo ""
         echo "Features:"
-        echo "• Pre-warms models before testing"
-        echo "• Progressive timeouts (3min first, 2min subsequent)"
+        echo "• Pre-warms ALL models before testing (fair comparison)"
+        echo "• Consistent 180s timeout for all models"
         echo "• System resource monitoring"
         echo "• Production-optimized prompting"
         echo "• Full response logging and analysis"
@@ -700,11 +697,11 @@ case "${1:-}" in
         echo "• Enhanced timing breakdown"
         echo ""
         echo "Examples:"
-        echo "  $0                    # Full detailed output"
-        echo "  $0 --brief           # Minimal output"
+        echo "  $0                    # Full detailed output with all models warmed"
+        echo "  $0 --brief           # Minimal output, still warms all models"
         echo "  $0 --no-full-response # Show truncated responses"
         echo ""
-        echo "Designed for 4GB+ DigitalOcean droplets with tool-capable models"
+        echo "Designed for 4GB+ DigitalOcean droplets with consistent model testing"
         exit 0
         ;;
     *)
