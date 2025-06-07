@@ -1,8 +1,10 @@
 """
-managers/agent_manager.py - Fixed Agent Execution Manager
+managers/agent_manager.py - Enhanced Agent Manager with Memory Limits
 
-Fixed version that properly engages the LLM during forced tool execution
-instead of bypassing it entirely.
+Enhanced with:
+- Limited memory retrieval (last 5 entries by default)
+- Automatic memory cleanup after execution
+- Configurable memory limits per agent
 """
 
 import json
@@ -14,14 +16,14 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class AgentManager:
-    """Manages agent execution and reasoning loops with proper LLM engagement"""
+    """Enhanced agent execution manager with memory management"""
     
     def __init__(self, ollama_client, memory_manager, tool_manager, config):
         self.ollama_client = ollama_client
         self.memory_manager = memory_manager
         self.tool_manager = tool_manager
         self.config = config
-        logger.info("Initialized fixed agent manager with proper LLM engagement")
+        logger.info("Initialized enhanced agent manager with memory management")
     
     async def execute_agent(
         self, 
@@ -29,7 +31,7 @@ class AgentManager:
         task: str, 
         context: Dict[str, Any] = None
     ) -> str:
-        """Execute agent with proper LLM engagement for tool calling"""
+        """Execute agent with memory limits and automatic cleanup"""
         context = context or {}
         
         # Get agent definition
@@ -47,8 +49,9 @@ class AgentManager:
             agent_name, "user", task, {"context": context}
         )
         
-        # Get recent conversation history
-        memory_entries = self.memory_manager.get_agent_memory(agent_name, limit=5)
+        # Get recent conversation history (LIMITED to max entries)
+        memory_limit = self.config.max_agent_memory_entries
+        memory_entries = self.memory_manager.get_agent_memory(agent_name, limit=memory_limit)
         chat_history = self._build_chat_history(memory_entries)
         
         # Build system prompt
@@ -57,11 +60,11 @@ class AgentManager:
         iteration = 0
         max_iterations = min(self.config.max_agent_iterations, 3)
         
-        while iteration < max_iterations:
-            iteration += 1
-            logger.debug(f"Agent {agent_name} iteration {iteration}")
-            
-            try:
+        try:
+            while iteration < max_iterations:
+                iteration += 1
+                logger.debug(f"Agent {agent_name} iteration {iteration}")
+                
                 # Generate response
                 response = await self._generate_simple_response(
                     system_prompt, agent, task, chat_history, iteration
@@ -77,7 +80,7 @@ class AgentManager:
                 tool_calls = self._parse_tool_calls_aggressive(response)
                 
                 if not tool_calls:
-                    # FIXED: Instead of bypassing LLM, re-prompt it with explicit instructions
+                    # Try to force tool usage if iteration 1 and tools available
                     if iteration == 1 and agent.get("tools"):
                         logger.info(f"No tool calls found, re-prompting LLM with explicit instructions")
                         
@@ -89,7 +92,7 @@ class AgentManager:
                         # Generate new response with explicit tool instruction
                         forced_response = await self.ollama_client.generate_response(
                             system_prompt,
-                            model=agent.get("ollama_model", "llama3"),
+                            model=agent.get("ollama_model", self.config.default_model),
                             chat_history=chat_history
                         )
                         
@@ -117,7 +120,7 @@ class AgentManager:
                     if not tool_calls:
                         # No tools available or couldn't force usage, treat as final answer
                         logger.info(f"Agent {agent_name} completed without tools")
-                        return response
+                        break
                 
                 # Execute tool calls
                 tool_results = await self._execute_tool_calls(
@@ -144,7 +147,7 @@ class AgentManager:
                     # Generate final response
                     final_response = await self.ollama_client.generate_response(
                         system_prompt,
-                        model=agent.get("ollama_model", "llama3"),
+                        model=agent.get("ollama_model", self.config.default_model),
                         chat_history=chat_history
                     )
                     
@@ -154,27 +157,38 @@ class AgentManager:
                         {"iteration": f"{iteration}-final", "task": task}
                     )
                     
-                    return final_response
-                
-            except Exception as e:
-                error_msg = f"Error in agent iteration {iteration}: {e}"
-                logger.error(error_msg)
-                self.memory_manager.add_memory_entry(
-                    agent_name, "thought", error_msg,
-                    {"iteration": iteration, "error": str(e)}
+                    response = final_response
+                    break
+            
+            # ENHANCED: Cleanup old memory entries after execution
+            self.memory_manager.cleanup_agent_memory(
+                agent_name, 
+                keep_last=self.config.max_agent_memory_entries
+            )
+            
+            return response
+                        
+        except Exception as e:
+            error_msg = f"Error in agent execution: {e}"
+            logger.error(error_msg)
+            self.memory_manager.add_memory_entry(
+                agent_name, "thought", error_msg,
+                {"error": str(e), "task": task}
+            )
+            
+            # Still cleanup memory even on error
+            try:
+                self.memory_manager.cleanup_agent_memory(
+                    agent_name, 
+                    keep_last=self.config.max_agent_memory_entries
                 )
-                raise
-        
-        # Max iterations reached
-        final_msg = f"Agent {agent_name} reached maximum iterations ({max_iterations})"
-        logger.warning(final_msg)
-        return f"Task completed. Final response: {response}"
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup memory after error: {cleanup_error}")
+            
+            raise
     
     def _create_explicit_tool_instruction(self, agent: Dict[str, Any], task: str) -> str:
-        """
-        Create explicit instruction to force the LLM to use tools
-        This engages the LLM instead of bypassing it
-        """
+        """Create explicit instruction to force the LLM to use tools"""
         available_tools = agent.get("tools", [])
         
         # Detect task type and create specific instruction
@@ -217,10 +231,7 @@ For HTTP requests: TOOL_CALL: http_client(url=https://api.example.com, method=GE
 Use the appropriate tool for: "{task}" """
     
     def _create_minimal_tool_call(self, agent: Dict[str, Any], task: str) -> Optional[Dict[str, Any]]:
-        """
-        Create minimal tool call as absolute last resort
-        This should only be used if LLM fails to respond to explicit instructions
-        """
+        """Create minimal tool call as absolute last resort"""
         available_tools = agent.get("tools", [])
         
         logger.warning("Creating minimal tool call as last resort - LLM engagement failed")
@@ -305,7 +316,7 @@ Never write code. Use tools when available and appropriate."""
         iteration: int
     ) -> str:
         """Generate response with explicit task instruction"""
-        model_name = agent.get("ollama_model", "llama3")
+        model_name = agent.get("ollama_model", self.config.default_model)
         
         # Add task to chat history for first iteration
         if iteration == 1:
@@ -474,7 +485,6 @@ Never write code. Use tools when available and appropriate."""
         
         return parameters
     
-    # Keep existing helper methods
     async def _execute_tool_calls(
         self, 
         tool_calls: List[Dict[str, Any]], 
@@ -522,7 +532,7 @@ Never write code. Use tools when available and appropriate."""
         return tool_results
     
     def _build_chat_history(self, memory_entries: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-        """Build chat history"""
+        """Build chat history from memory entries"""
         chat_history = []
         
         for entry in memory_entries:
@@ -539,12 +549,18 @@ Never write code. Use tools when available and appropriate."""
         return chat_history
     
     def get_agent_status(self, agent_name: str) -> Dict[str, Any]:
-        """Get agent status"""
+        """Get agent status with memory information"""
         agent = self.memory_manager.get_agent(agent_name)
         if not agent:
             return {"status": "not_found"}
         
-        recent_memory = self.memory_manager.get_agent_memory(agent_name, limit=5)
+        recent_memory = self.memory_manager.get_agent_memory(
+            agent_name, 
+            limit=self.config.max_agent_memory_entries
+        )
+        
+        memory_stats = self.memory_manager.get_memory_stats()
+        agent_memory_count = memory_stats.get("memory_per_agent", {}).get(agent_name, 0)
         
         return {
             "status": "active" if agent["enabled"] else "disabled",
@@ -553,5 +569,7 @@ Never write code. Use tools when available and appropriate."""
             "tools": agent["tools"],
             "model": agent["ollama_model"],
             "recent_activity": len(recent_memory),
+            "total_memory_entries": agent_memory_count,
+            "memory_limit": self.config.max_agent_memory_entries,
             "last_update": agent["updated_at"]
         }

@@ -1,8 +1,10 @@
 """
-models.py - Pydantic Data Models
+models.py - Enhanced Pydantic Data Models
 
-Defines all data structures for API requests and responses using Pydantic.
-These models provide type safety and automatic validation.
+Added new models for:
+- Ollama models listing and status
+- Memory management statistics and responses
+- Enhanced configuration with memory settings
 """
 
 from pydantic import BaseModel, Field
@@ -10,7 +12,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from enum import Enum
 
-# Agent Models
+# Agent Models (existing, unchanged)
 class AgentDefinition(BaseModel):
     """Model for creating a new agent"""
     name: str = Field(..., description="Unique agent name")
@@ -18,7 +20,7 @@ class AgentDefinition(BaseModel):
     goals: str = Field(..., description="Agent's goals and objectives")
     backstory: str = Field(..., description="Agent's background story")
     tools: List[str] = Field(default=[], description="List of tool names the agent can use")
-    ollama_model: str = Field(default="llama3", description="Preferred LLM model")
+    ollama_model: str = Field(default="granite3.2:2b", description="Preferred LLM model")
     enabled: bool = Field(default=True, description="Whether the agent is enabled")
     tool_configs: Optional[Dict[str, Dict[str, Any]]] = Field(
         default=None, description="Tool-specific configurations"
@@ -67,7 +69,7 @@ class AgentResponse(BaseModel):
     name: str
     message: str
 
-# Tool Models
+# Tool Models (existing, unchanged)
 class ToolRegistration(BaseModel):
     """Model for registering a new tool"""
     name: str = Field(..., description="Unique tool name")
@@ -115,7 +117,7 @@ class ToolResponse(BaseModel):
     name: str
     message: str
 
-# Workflow Models
+# Workflow Models (existing, unchanged)
 class WorkflowStep(BaseModel):
     """Model for a single workflow step"""
     type: str = Field(..., description="Step type: 'agent' or 'tool'")
@@ -172,7 +174,7 @@ class WorkflowResponse(BaseModel):
     name: str
     message: str
 
-# Scheduling Models
+# Scheduling Models (existing, unchanged)
 class TaskType(str, Enum):
     """Enumeration of task types"""
     AGENT = "agent"
@@ -213,7 +215,7 @@ class ScheduleResponse(BaseModel):
     id: int
     message: str
 
-# Memory Models
+# Memory Models (existing, unchanged)
 class MemoryEntry(BaseModel):
     """Model for a memory entry"""
     agent_name: str
@@ -230,16 +232,57 @@ class MemoryEntryResponse(BaseModel):
     metadata: Dict[str, Any]
     timestamp: datetime
 
-# Configuration Models
+# NEW: Ollama Models
+class ModelInfo(BaseModel):
+    """Model for Ollama model information"""
+    name: str = Field(..., description="Model name")
+    size: Optional[str] = Field(default=None, description="Model size")
+    modified_at: Optional[datetime] = Field(default=None, description="Last modified date")
+    digest: Optional[str] = Field(default=None, description="Model digest/hash")
+
+class ModelsStatusResponse(BaseModel):
+    """Model for models status response"""
+    ollama_healthy: bool = Field(..., description="Whether Ollama is accessible")
+    total_models: int = Field(..., description="Total number of available models")
+    available_models: List[str] = Field(..., description="List of available model names")
+    default_model: str = Field(..., description="Default model configured")
+    recommended_models: List[str] = Field(..., description="Recommended models for production")
+
+# NEW: Memory Management Models
+class MemoryStatsResponse(BaseModel):
+    """Model for memory statistics response"""
+    total_memory_entries: int = Field(..., description="Total memory entries across all agents")
+    agents_with_memory: int = Field(..., description="Number of agents with memory")
+    memory_per_agent: Dict[str, int] = Field(..., description="Memory count per agent")
+    oldest_entry: Optional[datetime] = Field(default=None, description="Timestamp of oldest entry")
+    newest_entry: Optional[datetime] = Field(default=None, description="Timestamp of newest entry")
+
+class MemoryCleanupRequest(BaseModel):
+    """Model for memory cleanup request"""
+    keep_last: int = Field(default=5, description="Number of recent entries to keep per agent", ge=1, le=50)
+
+class MemoryCleanupResponse(BaseModel):
+    """Model for memory cleanup response"""
+    message: str = Field(..., description="Cleanup result message")
+    agents_processed: int = Field(..., description="Number of agents processed")
+    kept_entries_per_agent: int = Field(..., description="Number of entries kept per agent")
+
+# Enhanced Configuration Models
 class ConfigUpdate(BaseModel):
     """Model for updating configuration"""
     ollama_url: Optional[str] = None
     default_model: Optional[str] = None
-    max_agent_iterations: Optional[int] = None
-    scheduler_interval: Optional[int] = None
+    max_agent_iterations: Optional[int] = Field(default=None, ge=1, le=10)
+    scheduler_interval: Optional[int] = Field(default=None, ge=30)
+    # NEW: Memory management configuration
+    max_agent_memory_entries: Optional[int] = Field(default=None, ge=1, le=100)
+    clear_memory_on_startup: Optional[bool] = None
+    memory_cleanup_interval: Optional[int] = Field(default=None, ge=300)  # At least 5 minutes
+    memory_retention_days: Optional[int] = Field(default=None, ge=1, le=365)
 
 class ConfigResponse(BaseModel):
     """Model for configuration response"""
+    # Original settings
     ollama_url: str
     default_model: str
     database_path: str
@@ -248,8 +291,42 @@ class ConfigResponse(BaseModel):
     max_agent_iterations: int
     scheduler_interval: int
     tools_directory: str
+    # NEW: Memory management settings
+    max_agent_memory_entries: int
+    clear_memory_on_startup: bool
+    memory_cleanup_interval: int
+    memory_retention_days: int
 
-# Generic Response Models
+class MemoryConfigUpdate(BaseModel):
+    """Model for updating only memory-related configuration"""
+    max_agent_memory_entries: Optional[int] = Field(default=None, ge=1, le=100)
+    clear_memory_on_startup: Optional[bool] = None
+    memory_cleanup_interval: Optional[int] = Field(default=None, ge=300)
+    memory_retention_days: Optional[int] = Field(default=None, ge=1, le=365)
+
+# Enhanced Health Check
+class HealthCheckResponse(BaseModel):
+    """Enhanced health check response"""
+    status: str = Field(..., description="Overall system status")
+    timestamp: datetime = Field(..., description="Health check timestamp")
+    ollama_status: bool = Field(..., description="Ollama service status")
+    memory_entries: int = Field(..., description="Total memory entries in system")
+    version: str = Field(default="1.1.0", description="Framework version")
+
+# NEW: Agent Status Model
+class AgentStatusResponse(BaseModel):
+    """Model for detailed agent status"""
+    status: str = Field(..., description="Agent status: active, disabled, or not_found")
+    name: str = Field(..., description="Agent name")
+    role: str = Field(..., description="Agent role")
+    tools: List[str] = Field(..., description="Available tools")
+    model: str = Field(..., description="LLM model being used")
+    recent_activity: int = Field(..., description="Number of recent memory entries")
+    total_memory_entries: int = Field(..., description="Total memory entries for this agent")
+    memory_limit: int = Field(..., description="Memory limit configured for agents")
+    last_update: datetime = Field(..., description="Last time agent was updated")
+
+# Generic Response Models (existing, unchanged)
 class MessageResponse(BaseModel):
     """Generic message response"""
     message: str
@@ -258,3 +335,37 @@ class ErrorResponse(BaseModel):
     """Error response model"""
     error: str
     detail: Optional[str] = None
+
+# NEW: Batch Operations Models
+class BatchAgentCleanupRequest(BaseModel):
+    """Model for batch agent memory cleanup"""
+    agent_names: Optional[List[str]] = Field(default=None, description="Specific agents to cleanup, or all if None")
+    keep_last: int = Field(default=5, description="Number of entries to keep", ge=1, le=50)
+
+class BatchAgentCleanupResponse(BaseModel):
+    """Model for batch cleanup response"""
+    message: str
+    agents_processed: int
+    total_entries_removed: int
+    agents_details: Dict[str, int]  # agent_name -> entries_removed
+
+# NEW: System Statistics
+class SystemStatsResponse(BaseModel):
+    """Model for comprehensive system statistics"""
+    framework_version: str = Field(default="1.1.0")
+    uptime_info: Dict[str, Any]
+    agents: Dict[str, Any]
+    tools: Dict[str, Any] 
+    workflows: Dict[str, Any]
+    memory: MemoryStatsResponse
+    ollama: ModelsStatusResponse
+    scheduled_tasks: Dict[str, Any]
+
+class ModelInstallRequest(BaseModel):
+    """Model for installing a new model"""
+    model_name: str = Field(..., description="Name of the model to install")
+    wait_for_completion: bool = Field(default=True, description="Wait for installation to complete")
+
+class ModelDeleteRequest(BaseModel):
+    """Model for deleting a model"""
+    model_name: str = Field(..., description="Name of the model to delete")
