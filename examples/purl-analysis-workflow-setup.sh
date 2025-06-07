@@ -30,30 +30,40 @@ check_api_availability() {
 }
 
 clean_existing_setup() {
-    echo "🧹 Cleaning existing agents and workflows..."
+    echo "🧹 Cleaning existing agents and workflows using framework APIs..."
     
-    # Get all agents and delete them
+    # Use framework's built-in cleanup endpoints
+    echo "  Clearing all agent memory..."
+    curl -s -X DELETE "$API_BASE/memory/clear-all" > /dev/null && \
+        echo "    ✅ All agent memory cleared" || \
+        echo "    ⚠️  Failed to clear agent memory"
+    
+    # Get and delete all agents
     echo "  Deleting existing agents..."
     AGENTS=$(curl -s "$API_BASE/agents" 2>/dev/null | jq -r '.[].name' 2>/dev/null || echo "")
     if [ -n "$AGENTS" ] && [ "$AGENTS" != "null" ]; then
+        AGENT_COUNT=$(echo "$AGENTS" | wc -l)
+        echo "    Found $AGENT_COUNT agent(s) to delete"
         echo "$AGENTS" | while read -r agent; do
             if [ -n "$agent" ] && [ "$agent" != "null" ]; then
-                echo "    🗑️  Deleting agent: $agent"
-                curl -s -X DELETE "$API_BASE/agents/$agent" > /dev/null || echo "      ⚠️  Failed to delete agent: $agent"
+                echo "      🗑️  Deleting agent: $agent"
+                curl -s -X DELETE "$API_BASE/agents/$agent" > /dev/null || echo "        ⚠️  Failed to delete agent: $agent"
             fi
         done
     else
         echo "    ℹ️  No existing agents found"
     fi
     
-    # Get all workflows and delete them
+    # Get and delete all workflows
     echo "  Deleting existing workflows..."
     WORKFLOWS=$(curl -s "$API_BASE/workflows" 2>/dev/null | jq -r '.[].name' 2>/dev/null || echo "")
     if [ -n "$WORKFLOWS" ] && [ "$WORKFLOWS" != "null" ]; then
+        WORKFLOW_COUNT=$(echo "$WORKFLOWS" | wc -l)
+        echo "    Found $WORKFLOW_COUNT workflow(s) to delete"
         echo "$WORKFLOWS" | while read -r workflow; do
             if [ -n "$workflow" ] && [ "$workflow" != "null" ]; then
-                echo "    🗑️  Deleting workflow: $workflow"
-                curl -s -X DELETE "$API_BASE/workflows/$workflow" > /dev/null || echo "      ⚠️  Failed to delete workflow: $workflow"
+                echo "      🗑️  Deleting workflow: $workflow"
+                curl -s -X DELETE "$API_BASE/workflows/$workflow" > /dev/null || echo "        ⚠️  Failed to delete workflow: $workflow"
             fi
         done
     else
@@ -64,68 +74,37 @@ clean_existing_setup() {
     echo "  Clearing scheduled tasks..."
     SCHEDULES=$(curl -s "$API_BASE/schedule" 2>/dev/null | jq -r '.[].id' 2>/dev/null || echo "")
     if [ -n "$SCHEDULES" ] && [ "$SCHEDULES" != "null" ]; then
+        SCHEDULE_COUNT=$(echo "$SCHEDULES" | wc -l)
+        echo "    Found $SCHEDULE_COUNT scheduled task(s) to delete"
         echo "$SCHEDULES" | while read -r schedule_id; do
             if [ -n "$schedule_id" ] && [ "$schedule_id" != "null" ]; then
-                echo "    🗑️  Deleting scheduled task: $schedule_id"
-                curl -s -X DELETE "$API_BASE/schedule/$schedule_id" > /dev/null || echo "      ⚠️  Failed to delete schedule: $schedule_id"
+                echo "      🗑️  Deleting scheduled task: $schedule_id"
+                curl -s -X DELETE "$API_BASE/schedule/$schedule_id" > /dev/null || echo "        ⚠️  Failed to delete schedule: $schedule_id"
             fi
         done
     else
         echo "    ℹ️  No existing scheduled tasks found"
     fi
     
-    echo "✅ Clean-up completed"
+    echo "✅ Clean-up completed using framework APIs"
     echo ""
     sleep 2
 }
 
-create_warmup_agents() {
-    echo "🔥 Creating Model Warm-up Agents..."
+check_ollama_service() {
+    echo "🔍 Checking Ollama service availability..."
     
-    # Model Warm-up Agent
-    echo "  Creating Model Warm-up Agent..."
-    curl -s -X POST "$API_BASE/agents" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "name": "model_warmup",
-            "role": "LLM Model Warm-up Specialist",
-            "goals": "Warm up language models by sending test prompts to ensure fast response times for production workloads. Load models into memory and verify they are responsive.",
-            "backstory": "You are a system optimization specialist responsible for ensuring AI models are loaded and ready for production use. You understand the importance of model warm-up for reducing first-request latency.",
-            "tools": [],
-            "enabled": true,
-            "instructions": [
-                "Execute simple test prompts to warm up models",
-                "Verify model responsiveness and loading status",
-                "Report model warm-up success or failures",
-                "Test different types of prompts (reasoning, analysis, tool calling)",
-                "Measure response times and identify slow models",
-                "Provide recommendations for model optimization"
-            ]
-        }' > /dev/null && echo "    ✅ Model Warm-up Agent created" || echo "    ❌ Failed to create Model Warm-up Agent"
-
-    # System Health Check Agent
-    echo "  Creating System Health Check Agent..."
-    curl -s -X POST "$API_BASE/agents" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "name": "system_health_checker",
-            "role": "System Health and Performance Monitor",
-            "goals": "Monitor system health, check service availability, and verify all components are ready for production workloads including model availability and response times.",
-            "backstory": "You are a DevOps engineer specialized in system monitoring and health checks. You ensure all services are running optimally and can identify performance bottlenecks.",
-            "tools": ["http_client", "website_monitor"],
-            "enabled": true,
-            "instructions": [
-                "Check health endpoints for all services",
-                "Verify Ollama model availability and responsiveness", 
-                "Test API endpoints and response times",
-                "Monitor system resource usage indicators",
-                "Report overall system readiness status",
-                "Identify and flag performance issues"
-            ]
-        }' > /dev/null && echo "    ✅ System Health Check Agent created" || echo "    ❌ Failed to create System Health Check Agent"
-
-    echo "🔥 Warm-up agents created successfully!"
-    echo ""
+    for i in $(seq 1 10); do
+        if curl -s "http://localhost:11434/api/tags" > /dev/null 2>&1; then
+            echo "    ✅ Ollama service is available"
+            return 0
+        fi
+        echo "    ⏳ Waiting for Ollama service... ($i/10)"
+        sleep 5
+    done
+    
+    echo "    ⚠️  Ollama service not responding, but continuing setup..."
+    return 1
 }
 
 create_purl_agents() {
@@ -220,157 +199,6 @@ create_purl_agents() {
     echo ""
 }
 
-create_warmup_workflows() {
-    echo "🔄 Creating Model Warm-up Workflows..."
-
-    # Quick Model Warm-up Workflow
-    echo "  Creating Quick Model Warm-up Workflow..."
-    curl -s -X POST "$API_BASE/workflows" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "name": "quick_model_warmup",
-            "description": "Quick model warm-up for faster startup",
-            "steps": [
-                {
-                    "type": "agent",
-                    "name": "model_warmup",
-                    "task": "Quick model warm-up test: '\''Ready?'\'' - expect a simple confirmation response.",
-                    "context_key": "quick_test"
-                },
-                {
-                    "type": "agent",
-                    "name": "system_health_checker", 
-                    "task": "Verify system is ready based on quick test: {quick_test}",
-                    "context_key": "quick_status"
-                }
-            ],
-            "enabled": true
-        }' > /dev/null && echo "    ✅ Quick Model Warm-up Workflow created" || echo "    ❌ Failed to create Quick Model Warm-up Workflow"
-
-    # Comprehensive Model Warm-up Workflow
-    echo "  Creating Comprehensive Model Warm-up Workflow..."
-    curl -s -X POST "$API_BASE/workflows" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "name": "model_warmup_workflow",
-            "description": "Comprehensive model warm-up and system readiness check",
-            "steps": [
-                {
-                    "type": "agent",
-                    "name": "system_health_checker",
-                    "task": "Check if Ollama service is running and accessible at the configured endpoint. Verify the health endpoint responds correctly.",
-                    "context_key": "ollama_health"
-                },
-                {
-                    "type": "agent",
-                    "name": "model_warmup",
-                    "task": "Warm up the default model with a simple test prompt: '\''Hello, please respond with '\''Model ready'\'' to confirm you are loaded and responsive.'\''",
-                    "context_key": "model_test_1"
-                },
-                {
-                    "type": "agent", 
-                    "name": "model_warmup",
-                    "task": "Test model reasoning capabilities with: '\''What is 2+2? Please explain your reasoning briefly.'\''",
-                    "context_key": "model_test_2"
-                },
-                {
-                    "type": "agent",
-                    "name": "model_warmup", 
-                    "task": "Test model instruction following with: '\''List 3 benefits of model warm-up in production systems.'\''",
-                    "context_key": "model_test_3"
-                },
-                {
-                    "type": "agent",
-                    "name": "system_health_checker",
-                    "task": "Based on the warm-up results: Ollama Health: {ollama_health}, Test 1: {model_test_1}, Test 2: {model_test_2}, Test 3: {model_test_3} - provide a comprehensive system readiness report.",
-                    "context_key": "readiness_report"
-                }
-            ],
-            "enabled": true
-        }' > /dev/null && echo "    ✅ Comprehensive Model Warm-up Workflow created" || echo "    ❌ Failed to create Comprehensive Model Warm-up Workflow"
-
-    # Agent-Specific Warm-up Workflow
-    echo "  Creating Agent-Specific Warm-up Workflow..."
-    curl -s -X POST "$API_BASE/workflows" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "name": "agent_warmup_workflow", 
-            "description": "Warm up specific agents that will be used in production",
-            "steps": [
-                {
-                    "type": "agent",
-                    "name": "purl_parser",
-                    "task": "Warm-up test: Parse this sample PURL: pkg:npm/test@1.0.0",
-                    "context_key": "purl_parser_test"
-                },
-                {
-                    "type": "agent",
-                    "name": "api_client_clearlydefined",
-                    "task": "Warm-up test: Explain what you would do to query ClearlyDefined API for a package (do not make actual API call).",
-                    "context_key": "api_client_test"
-                },
-                {
-                    "type": "agent",
-                    "name": "package_analyzer_clearlydefined", 
-                    "task": "Warm-up test: Explain how you would analyze a package with MIT license and score of 85.",
-                    "context_key": "analyzer_test"
-                },
-                {
-                    "type": "agent",
-                    "name": "system_health_checker",
-                    "task": "Report on agent warm-up results: PURL Parser: {purl_parser_test}, API Client: {api_client_test}, Analyzer: {analyzer_test}",
-                    "context_key": "agent_warmup_report"
-                }
-            ],
-            "enabled": true
-        }' > /dev/null && echo "    ✅ Agent-Specific Warm-up Workflow created" || echo "    ❌ Failed to create Agent-Specific Warm-up Workflow"
-
-    # Production Readiness Check Workflow
-    echo "  Creating Production Readiness Check Workflow..."
-    curl -s -X POST "$API_BASE/workflows" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "name": "production_readiness_check",
-            "description": "Comprehensive production readiness verification",
-            "steps": [
-                {
-                    "type": "agent",
-                    "name": "system_health_checker",
-                    "task": "Check all system health endpoints: main API (/health), Ollama (/api/tags), and verify all services are responding correctly.",
-                    "context_key": "health_status"
-                },
-                {
-                    "type": "agent",
-                    "name": "model_warmup",
-                    "task": "Test model performance with a complex prompt: '\''Analyze the security implications of using a package with MIT license, overall score 75, and 2 known vulnerabilities. Provide a 3-point recommendation.'\''",
-                    "context_key": "performance_test"
-                },
-                {
-                    "type": "agent",
-                    "name": "purl_parser",
-                    "task": "Production test: Parse and validate pkg:maven/org.apache.commons/commons-lang3@3.12.0",
-                    "context_key": "purl_production_test"
-                },
-                {
-                    "type": "agent",
-                    "name": "api_client_clearlydefined",
-                    "task": "Production test: Query ClearlyDefined API for a sample package to verify API connectivity and response handling.",
-                    "context_key": "api_production_test"
-                },
-                {
-                    "type": "agent",
-                    "name": "system_health_checker",
-                    "task": "Generate production readiness report based on: Health: {health_status}, Performance: {performance_test}, PURL Test: {purl_production_test}, API Test: {api_production_test}. Determine if system is ready for production workloads.",
-                    "context_key": "production_readiness"
-                }
-            ],
-            "enabled": true
-        }' > /dev/null && echo "    ✅ Production Readiness Check Workflow created" || echo "    ❌ Failed to create Production Readiness Check Workflow"
-
-    echo "🔄 Warm-up workflows created successfully!"
-    echo ""
-}
-
 create_purl_workflows() {
     echo "🔄 Creating PURL Analysis Workflows..."
 
@@ -462,35 +290,88 @@ create_purl_workflows() {
     echo ""
 }
 
-run_initial_warmup() {
-    echo "🔥 Running Initial Model Warm-up..."
+warmup_models_directly() {
+    echo "🔥 Warming up models using framework's built-in mechanisms..."
+    
+    check_ollama_service
+    
+    # Check available models
+    echo "  Checking available models..."
+    MODELS=$(curl -s "http://localhost:11434/api/tags" 2>/dev/null | jq -r '.models[].name' 2>/dev/null || echo "")
+    
+    if [ -n "$MODELS" ] && [ "$MODELS" != "null" ]; then
+        echo "    Available models:"
+        echo "$MODELS" | while read -r model; do
+            if [ -n "$model" ] && [ "$model" != "null" ]; then
+                echo "      📦 $model"
+            fi
+        done
+        
+        # Warm up models by making simple requests
+        echo "  Warming up models..."
+        echo "$MODELS" | head -3 | while read -r model; do
+            if [ -n "$model" ] && [ "$model" != "null" ]; then
+                echo "    🔥 Warming up $model..."
+                
+                # Simple warm-up request using framework's API
+                curl -s -X POST "$API_BASE/chat" \
+                    -H "Content-Type: application/json" \
+                    -d "{
+                        \"message\": \"Hello, this is a warm-up test. Please respond with: $model is ready\",
+                        \"model\": \"$model\"
+                    }" > /dev/null 2>&1 && \
+                    echo "      ✅ $model warmed up" || \
+                    echo "      ⚠️  $model warm-up may have issues"
+                
+                sleep 2
+            fi
+        done
+    else
+        echo "    ⚠️  No models found or Ollama not accessible"
+        echo "    📥 Models may still be downloading..."
+    fi
+    
+    echo "🔥 Model warm-up completed!"
+    echo ""
+}
 
-    # Quick warm-up first
-    echo "  Running quick model warm-up..."
-    curl -s -X POST "$API_BASE/workflows/quick_model_warmup/execute" \
+test_agent_functionality() {
+    echo "🧪 Testing agent functionality..."
+
+    # Test PURL parser with a simple call
+    echo "  Testing PURL parser agent..."
+    curl -s -X POST "$API_BASE/agents/purl_parser/execute" \
         -H "Content-Type: application/json" \
-        -d '{"context": {"startup": true, "automated": true}}' > /dev/null && \
-        echo "    ✅ Quick warm-up completed" || echo "    ⚠️  Quick warm-up may have issues"
+        -d '{
+            "task": "Parse this PURL: pkg:npm/test@1.0.0",
+            "context": {"test": true}
+        }' > /dev/null && \
+        echo "    ✅ PURL parser agent responding" || \
+        echo "    ⚠️  PURL parser agent may have issues"
 
-    sleep 5
-
-    # Comprehensive warm-up
-    echo "  Running comprehensive model warm-up..."
-    curl -s -X POST "$API_BASE/workflows/model_warmup_workflow/execute" \
+    # Test ClearlyDefined API client (without making actual API call)
+    echo "  Testing ClearlyDefined API client agent..."
+    curl -s -X POST "$API_BASE/agents/api_client_clearlydefined/execute" \
         -H "Content-Type: application/json" \
-        -d '{"context": {"startup": true, "automated": true}}' > /dev/null && \
-        echo "    ✅ Comprehensive warm-up completed" || echo "    ⚠️  Comprehensive warm-up may have issues"
+        -d '{
+            "task": "Explain your role and capabilities without making any API calls",
+            "context": {"test": true}
+        }' > /dev/null && \
+        echo "    ✅ ClearlyDefined API client agent responding" || \
+        echo "    ⚠️  ClearlyDefined API client agent may have issues"
 
-    sleep 5
-
-    # Agent-specific warm-up
-    echo "  Running agent-specific warm-up..."
-    curl -s -X POST "$API_BASE/workflows/agent_warmup_workflow/execute" \
+    # Test analyzer agent
+    echo "  Testing ClearlyDefined analyzer agent..."
+    curl -s -X POST "$API_BASE/agents/package_analyzer_clearlydefined/execute" \
         -H "Content-Type: application/json" \
-        -d '{"context": {"startup": true, "automated": true}}' > /dev/null && \
-        echo "    ✅ Agent warm-up completed" || echo "    ⚠️  Agent warm-up may have issues"
+        -d '{
+            "task": "Explain how you would analyze a package with MIT license and score of 85",
+            "context": {"test": true}
+        }' > /dev/null && \
+        echo "    ✅ ClearlyDefined analyzer agent responding" || \
+        echo "    ⚠️  ClearlyDefined analyzer agent may have issues"
 
-    echo "🔥 Initial warm-up process completed!"
+    echo "🧪 Agent functionality testing completed!"
     echo ""
 }
 
@@ -509,17 +390,19 @@ test_system() {
         }' 2>/dev/null)
 
     if [ $? -eq 0 ]; then
-        echo "    ✅ PURL analysis test completed successfully"
+        echo "    ✅ PURL analysis workflow test completed successfully"
     else
-        echo "    ⚠️  PURL analysis test may have issues"
+        echo "    ⚠️  PURL analysis workflow test may have issues"
     fi
 
-    # Production readiness check
-    echo "  Running production readiness check..."
-    curl -s -X POST "$API_BASE/workflows/production_readiness_check/execute" \
-        -H "Content-Type: application/json" \
-        -d '{"context": {"initial_setup": true}}' > /dev/null && \
-        echo "    ✅ Production readiness check completed" || echo "    ⚠️  Production readiness check may have issues"
+    # Test framework health
+    echo "  Checking framework health..."
+    HEALTH=$(curl -s "$API_BASE/health" 2>/dev/null)
+    if echo "$HEALTH" | grep -q "status" 2>/dev/null; then
+        echo "    ✅ Framework health check passed"
+    else
+        echo "    ⚠️  Framework health check may have issues"
+    fi
 
     echo "🧪 System testing completed!"
     echo ""
@@ -530,18 +413,12 @@ show_summary() {
     echo "================"
     echo ""
     echo "✅ Created Agents:"
-    echo "   🔥 model_warmup - Model warm-up specialist"
-    echo "   🏥 system_health_checker - System health monitor"
     echo "   📦 purl_parser - Generic PURL parser"
     echo "   🌐 api_client_clearlydefined - ClearlyDefined API client"
     echo "   🔍 package_analyzer_clearlydefined - ClearlyDefined analyzer"
     echo "   🌍 http_client_generic - Generic HTTP client"
     echo ""
     echo "✅ Created Workflows:"
-    echo "   ⚡ quick_model_warmup - Fast warm-up"
-    echo "   🔥 model_warmup_workflow - Comprehensive warm-up"
-    echo "   🤖 agent_warmup_workflow - Agent-specific warm-up"
-    echo "   ✅ production_readiness_check - Production verification"
     echo "   📦 purl_analysis_clearlydefined - Full PURL analysis"
     echo "   ⚡ quick_purl_clearlydefined - Quick PURL analysis"
     echo "   🔄 purl_multi_api_comparison - Multi-API comparison"
@@ -557,16 +434,6 @@ show_summary() {
     echo 'curl -X POST "http://localhost:8000/workflows/purl_analysis_clearlydefined/execute" \'
     echo '  -H "Content-Type: application/json" \'
     echo '  -d '"'"'{"context": {"purl": "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.13.0"}}'"'"''
-    echo ""
-    echo "# Manual warm-up:"
-    echo 'curl -X POST "http://localhost:8000/workflows/model_warmup_workflow/execute" \'
-    echo '  -H "Content-Type: application/json" \'
-    echo '  -d '"'"'{"context": {"manual": true}}'"'"''
-    echo ""
-    echo "# Production readiness check:"
-    echo 'curl -X POST "http://localhost:8000/workflows/production_readiness_check/execute" \'
-    echo '  -H "Content-Type: application/json" \'
-    echo '  -d '"'"'{"context": {"check": true}}'"'"''
     echo ""
     echo "🌐 Available Endpoints:"
     echo "   • API Documentation: http://localhost:8000/docs"
@@ -588,11 +455,10 @@ main() {
         clean_existing_setup
     fi
     
-    create_warmup_agents
     create_purl_agents
-    create_warmup_workflows
     create_purl_workflows
-    run_initial_warmup
+    warmup_models_directly
+    test_agent_functionality
     test_system
     show_summary
     
@@ -612,10 +478,11 @@ case "${1:-setup}" in
         ;;
     "warmup")
         check_api_availability
-        run_initial_warmup
+        warmup_models_directly
         ;;
     "test")
         check_api_availability
+        test_agent_functionality
         test_system
         ;;
     *)
