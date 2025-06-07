@@ -1,11 +1,5 @@
 """
 main.py - FastAPI Application Entry Point (Enhanced with Fixed Model Installation)
-
-Added features:
-- Fixed Ollama models installation with proper error handling
-- Memory management and cleanup
-- Automatic memory clearing on startup
-- Memory statistics and cleanup endpoints
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
