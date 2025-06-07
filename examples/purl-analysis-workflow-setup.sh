@@ -125,10 +125,11 @@ create_purl_agents() {
             "instructions": [
                 "When given a PURL, extract all components carefully",
                 "Handle special cases like scoped npm packages (@scope/package)",
-                "Provide the default provider for each package type",
-                "Build API URLs for different services as requested",
+                "Provide the default provider for each package type (npm->npmjs, maven->mavencentral, pypi->pypi, etc.)",
+                "For ClearlyDefined API, build URLs in this format: https://api.clearlydefined.io/definitions/{type}/{provider}/{namespace}/{name}/{version}",
+                "For packages without namespace, use \"-\" as placeholder: https://api.clearlydefined.io/definitions/{type}/{provider}-/{name}/{version}",
                 "If PURL is invalid, explain what is wrong and suggest corrections",
-                "Support multiple output formats for different API integrations"
+                "Always provide the complete ClearlyDefined API URL ready to be called"
             ]
         }' > /dev/null && echo "    ✅ PURL Parser Agent created (granite3.2:2b)" || echo "    ❌ Failed to create PURL Parser Agent"
 
@@ -139,13 +140,15 @@ create_purl_agents() {
         -d '{
             "name": "api_client_clearlydefined",
             "role": "ClearlyDefined API Specialist",
-            "goals": "Query the ClearlyDefined API using constructed URLs and return structured package information specific to ClearlyDefined data format.",
+            "goals": "Query the ClearlyDefined API using URLs provided by the PURL parser and return structured package information specific to ClearlyDefined data format.",
             "backstory": "You are an expert at making API calls specifically to the ClearlyDefined service (api.clearlydefined.io). You understand their API response format, data structure, and can extract meaningful information about package licensing, security scores, and metadata from their specific response format.",
             "tools": ["http_client"],
             "ollama_model": "granite3.2:2b",
             "enabled": true,
             "instructions": [
-                "Make HTTP GET requests to ClearlyDefined API endpoints (api.clearlydefined.io)",
+                "Use the http_client tool to make HTTP GET requests to ClearlyDefined API endpoints",
+                "The PURL parser will provide you with the complete URL - use it exactly as provided",
+                "ClearlyDefined URL format: https://api.clearlydefined.io/definitions/{type}/{provider}/{namespace_or_dash}/{name}/{version}",
                 "Handle ClearlyDefined-specific 404 responses gracefully (package not found)",
                 "Extract ClearlyDefined-specific fields: described, licensed, coordinates, scores",
                 "Understand ClearlyDefined score meanings (overall, tool, effective)",
@@ -177,120 +180,44 @@ create_purl_agents() {
             ]
         }' > /dev/null && echo "    ✅ ClearlyDefined Package Analyzer Agent created (granite3.2:2b)" || echo "    ❌ Failed to create ClearlyDefined Package Analyzer Agent"
 
-    # 4. Create Generic HTTP Client Agent (for future APIs)
-    echo "  Creating Generic HTTP Client Agent..."
-    curl -s -X POST "$API_BASE/agents" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "name": "http_client_generic",
-            "role": "Generic HTTP API Client",
-            "goals": "Make HTTP requests to any API and return structured responses. Handle common HTTP patterns and error conditions across different APIs.",
-            "backstory": "You are a versatile API client specialist who can interact with any REST API. You understand standard HTTP status codes, authentication methods, and can adapt to different API response formats.",
-            "tools": ["http_client"],
-            "ollama_model": "granite3.2:2b",
-            "enabled": true,
-            "instructions": [
-                "Make HTTP requests to any provided URL",
-                "Handle standard HTTP status codes appropriately", 
-                "Extract and format response data clearly",
-                "Provide meaningful error messages for failures",
-                "Support different authentication methods as configured",
-                "Return responses in a consistent format regardless of source API"
-            ]
-        }' > /dev/null && echo "    ✅ Generic HTTP Client Agent created (granite3.2:2b)" || echo "    ❌ Failed to create Generic HTTP Client Agent"
-
     echo "🤖 PURL analysis agents created successfully with granite3.2:2b model!"
     echo ""
 }
 
 create_purl_workflows() {
-    echo "🔄 Creating PURL Analysis Workflows..."
+    echo "🔄 Creating PURL Analysis Workflow..."
 
-    # ClearlyDefined-specific PURL Analysis Workflow
-    echo "  Creating ClearlyDefined PURL Analysis Workflow..."
+    # Quick PURL Analysis Workflow (complete workflow)
+    echo "  Creating PURL Analysis Workflow..."
     curl -s -X POST "$API_BASE/workflows" \
         -H "Content-Type: application/json" \
         -d '{
             "name": "purl_analysis_clearlydefined",
-            "description": "Complete PURL analysis workflow using ClearlyDefined API: Parse -> Query ClearlyDefined -> Analyze ClearlyDefined results",
+            "description": "Complete PURL analysis workflow using ClearlyDefined API: Parse PURL -> Query ClearlyDefined API -> Analyze results",
             "steps": [
                 {
                     "type": "agent",
                     "name": "purl_parser",
-                    "task": "Parse this Package URL and extract components for ClearlyDefined API: {purl}. I need the package type, provider, namespace (if any), name, version, and the complete ClearlyDefined API URL (https://api.clearlydefined.io/definitions/...) that should be called. Format your response as structured data.",
+                    "task": "Parse this Package URL: {purl}. Extract all components (type, provider, namespace, name, version) and provide the complete ClearlyDefined API URL to call. Format: https://api.clearlydefined.io/definitions/{type}/{provider}/{namespace_or_dash}/{name}/{version}",
                     "context_key": "parsed_purl"
                 },
                 {
-                    "type": "agent", 
+                    "type": "agent",
                     "name": "api_client_clearlydefined",
-                    "task": "Using the parsed PURL information: {parsed_purl}, make an HTTP GET request to the ClearlyDefined API. Extract the API URL from the parsed data and call it. Return the complete ClearlyDefined API response along with a summary of key findings.",
+                    "task": "Using the parsed PURL information from: {parsed_purl}, extract the ClearlyDefined API URL and make an HTTP GET request using the http_client tool. Return the complete API response with package licensing, scores, and metadata.",
                     "context_key": "clearlydefined_response"
                 },
                 {
                     "type": "agent",
-                    "name": "package_analyzer_clearlydefined", 
-                    "task": "Analyze the ClearlyDefined API response: {clearlydefined_response} for the original PURL: {purl}. Provide a comprehensive security and compliance analysis based on ClearlyDefined data including: 1) License information and ClearlyDefined confidence, 2) ClearlyDefined scores interpretation (overall, tool, effective), 3) Recommendations based on ClearlyDefined analysis, 4) Any red flags from ClearlyDefined data, 5) Executive summary of ClearlyDefined findings.",
-                    "context_key": "clearlydefined_analysis"
-                }
-            ],
-            "enabled": true
-        }' > /dev/null && echo "    ✅ ClearlyDefined PURL Analysis Workflow created" || echo "    ❌ Failed to create ClearlyDefined PURL Analysis Workflow"
-
-    # Quick ClearlyDefined Analysis Workflow
-    echo "  Creating Quick ClearlyDefined Analysis Workflow..."
-    curl -s -X POST "$API_BASE/workflows" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "name": "quick_purl_clearlydefined",
-            "description": "Quick PURL analysis using ClearlyDefined API for basic package information",
-            "steps": [
-                {
-                    "type": "agent",
-                    "name": "purl_parser", 
-                    "task": "Parse this PURL for ClearlyDefined API: {purl} and provide the ClearlyDefined API URL to call.",
-                    "context_key": "clearlydefined_url"
-                },
-                {
-                    "type": "agent",
-                    "name": "api_client_clearlydefined",
-                    "task": "Call this ClearlyDefined API URL: {clearlydefined_url} and return basic package information including license and ClearlyDefined scores.",
-                    "context_key": "clearlydefined_info"
-                }
-            ],
-            "enabled": true
-        }' > /dev/null && echo "    ✅ Quick ClearlyDefined Analysis Workflow created" || echo "    ❌ Failed to create Quick ClearlyDefined Analysis Workflow"
-
-    # Multi-API Comparison Workflow (template for future)
-    echo "  Creating Multi-API Comparison Workflow Template..."
-    curl -s -X POST "$API_BASE/workflows" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "name": "purl_multi_api_comparison",
-            "description": "Compare package information across multiple APIs (currently ClearlyDefined, expandable for others)",
-            "steps": [
-                {
-                    "type": "agent",
-                    "name": "purl_parser",
-                    "task": "Parse this PURL: {purl} and prepare URLs for multiple package analysis APIs. Start with ClearlyDefined format.",
-                    "context_key": "parsed_for_apis"
-                },
-                {
-                    "type": "agent", 
-                    "name": "api_client_clearlydefined",
-                    "task": "Query ClearlyDefined API using: {parsed_for_apis}. Return ClearlyDefined-specific analysis.",
-                    "context_key": "clearlydefined_data"
-                },
-                {
-                    "type": "agent",
                     "name": "package_analyzer_clearlydefined",
-                    "task": "Compare and synthesize package information from ClearlyDefined: {clearlydefined_data}. Provide consolidated analysis highlighting strengths and gaps in available data. Note: This workflow is ready for expansion with additional APIs.",
-                    "context_key": "multi_api_analysis"
+                    "task": "Analyze the ClearlyDefined API response: {clearlydefined_response} for the package: {purl}. Provide a comprehensive analysis including: 1) License information and confidence levels, 2) Security scores (overall, tool, effective), 3) Compliance recommendations, 4) Risk assessment, 5) Executive summary with actionable insights.",
+                    "context_key": "analysis_result"
                 }
             ],
             "enabled": true
-        }' > /dev/null && echo "    ✅ Multi-API Comparison Workflow Template created" || echo "    ❌ Failed to create Multi-API Comparison Workflow Template"
+        }' > /dev/null && echo "    ✅ PURL Analysis Workflow created" || echo "    ❌ Failed to create PURL Analysis Workflow"
 
-    echo "🔄 PURL analysis workflows created successfully!"
+    echo "🔄 PURL analysis workflow created successfully!"
     echo ""
 }
 
@@ -449,28 +376,25 @@ show_summary() {
     echo "================"
     echo ""
     echo "✅ Created Agents (all using granite3.2:2b):"
-    echo "   📦 purl_parser - Generic PURL parser"
-    echo "   🌐 api_client_clearlydefined - ClearlyDefined API client"
+    echo "   📦 purl_parser - Generic PURL parser with ClearlyDefined URL building"
+    echo "   🌐 api_client_clearlydefined - ClearlyDefined API client (uses http_client tool)"
     echo "   🔍 package_analyzer_clearlydefined - ClearlyDefined analyzer"
-    echo "   🌍 http_client_generic - Generic HTTP client"
     echo ""
-    echo "✅ Created Workflows:"
-    echo "   📦 purl_analysis_clearlydefined - Full PURL analysis"
-    echo "   ⚡ quick_purl_clearlydefined - Quick PURL analysis"
-    echo "   🔄 purl_multi_api_comparison - Multi-API comparison"
+    echo "✅ Created Workflow:"
+    echo "   📦 purl_analysis_clearlydefined - Complete PURL to analysis workflow"
     echo ""
     echo "🔥 Model Configuration:"
     echo "   🏗️  All agents use: granite3.2:2b"
     echo "   ⚡ granite3.2:2b model warmed up and ready"
     echo ""
-    echo "🚀 Usage Examples:"
+    echo "🚀 Usage Example:"
     echo ""
-    echo "# Quick PURL analysis:"
-    echo 'curl -X POST "http://localhost:8000/workflows/quick_purl_clearlydefined/execute" \'
+    echo "# Complete PURL analysis:"
+    echo 'curl -X POST "http://localhost:8000/workflows/purl_analysis_clearlydefined/execute" \'
     echo '  -H "Content-Type: application/json" \'
     echo '  -d '"'"'{"context": {"purl": "pkg:npm/lodash@4.17.21"}}'"'"''
     echo ""
-    echo "# Full PURL analysis:"
+    echo "# Test with different package types:"
     echo 'curl -X POST "http://localhost:8000/workflows/purl_analysis_clearlydefined/execute" \'
     echo '  -H "Content-Type: application/json" \'
     echo '  -d '"'"'{"context": {"purl": "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.13.0"}}'"'"''
