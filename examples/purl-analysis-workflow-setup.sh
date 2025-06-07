@@ -108,7 +108,7 @@ check_ollama_service() {
 }
 
 create_purl_agents() {
-    echo "🤖 Creating PURL Analysis Agents with improved naming..."
+    echo "🤖 Creating PURL Analysis Agents with granite3.2:2b model..."
 
     # 1. Create PURL Parser Agent (Generic - works with any API)
     echo "  Creating PURL Parser Agent (generic)..."
@@ -120,6 +120,7 @@ create_purl_agents() {
             "goals": "Parse Package URLs (PURLs) into their components and validate format. Extract package type, namespace, name, version, and prepare data for various package analysis APIs.",
             "backstory": "You are an expert in package management systems and Package URL specifications. You understand the PURL format: pkg:type/namespace/name@version and can parse it into components needed for API calls across different package analysis services.",
             "tools": [],
+            "ollama_model": "granite3.2:2b",
             "enabled": true,
             "instructions": [
                 "When given a PURL, extract all components carefully",
@@ -129,7 +130,7 @@ create_purl_agents() {
                 "If PURL is invalid, explain what is wrong and suggest corrections",
                 "Support multiple output formats for different API integrations"
             ]
-        }' > /dev/null && echo "    ✅ PURL Parser Agent created" || echo "    ❌ Failed to create PURL Parser Agent"
+        }' > /dev/null && echo "    ✅ PURL Parser Agent created (granite3.2:2b)" || echo "    ❌ Failed to create PURL Parser Agent"
 
     # 2. Create ClearlyDefined-specific API Client Agent  
     echo "  Creating ClearlyDefined API Client Agent..."
@@ -141,6 +142,7 @@ create_purl_agents() {
             "goals": "Query the ClearlyDefined API using constructed URLs and return structured package information specific to ClearlyDefined data format.",
             "backstory": "You are an expert at making API calls specifically to the ClearlyDefined service (api.clearlydefined.io). You understand their API response format, data structure, and can extract meaningful information about package licensing, security scores, and metadata from their specific response format.",
             "tools": ["http_client"],
+            "ollama_model": "granite3.2:2b",
             "enabled": true,
             "instructions": [
                 "Make HTTP GET requests to ClearlyDefined API endpoints (api.clearlydefined.io)",
@@ -150,7 +152,7 @@ create_purl_agents() {
                 "Provide clear error messages for ClearlyDefined API failures",
                 "Return structured data in ClearlyDefined format for downstream processing"
             ]
-        }' > /dev/null && echo "    ✅ ClearlyDefined API Client Agent created" || echo "    ❌ Failed to create ClearlyDefined API Client Agent"
+        }' > /dev/null && echo "    ✅ ClearlyDefined API Client Agent created (granite3.2:2b)" || echo "    ❌ Failed to create ClearlyDefined API Client Agent"
 
     # 3. Create ClearlyDefined-specific Package Analyzer Agent
     echo "  Creating ClearlyDefined Package Analyzer Agent..."
@@ -162,6 +164,7 @@ create_purl_agents() {
             "goals": "Analyze package information specifically from ClearlyDefined API responses and provide security, licensing, and compliance insights based on ClearlyDefined data format and scoring system.",
             "backstory": "You are a senior software security analyst with deep expertise in ClearlyDefined data interpretation. You understand their scoring methodology, license detection algorithms, and can provide actionable recommendations based on ClearlyDefined analysis results.",
             "tools": [],
+            "ollama_model": "granite3.2:2b",
             "enabled": true,
             "instructions": [
                 "Analyze ClearlyDefined package definition data for security and compliance risks",
@@ -172,7 +175,7 @@ create_purl_agents() {
                 "Flag packages with low ClearlyDefined scores or missing data",
                 "Create executive summaries interpreting ClearlyDefined results for non-technical stakeholders"
             ]
-        }' > /dev/null && echo "    ✅ ClearlyDefined Package Analyzer Agent created" || echo "    ❌ Failed to create ClearlyDefined Package Analyzer Agent"
+        }' > /dev/null && echo "    ✅ ClearlyDefined Package Analyzer Agent created (granite3.2:2b)" || echo "    ❌ Failed to create ClearlyDefined Package Analyzer Agent"
 
     # 4. Create Generic HTTP Client Agent (for future APIs)
     echo "  Creating Generic HTTP Client Agent..."
@@ -184,6 +187,7 @@ create_purl_agents() {
             "goals": "Make HTTP requests to any API and return structured responses. Handle common HTTP patterns and error conditions across different APIs.",
             "backstory": "You are a versatile API client specialist who can interact with any REST API. You understand standard HTTP status codes, authentication methods, and can adapt to different API response formats.",
             "tools": ["http_client"],
+            "ollama_model": "granite3.2:2b",
             "enabled": true,
             "instructions": [
                 "Make HTTP requests to any provided URL",
@@ -193,9 +197,9 @@ create_purl_agents() {
                 "Support different authentication methods as configured",
                 "Return responses in a consistent format regardless of source API"
             ]
-        }' > /dev/null && echo "    ✅ Generic HTTP Client Agent created" || echo "    ❌ Failed to create Generic HTTP Client Agent"
+        }' > /dev/null && echo "    ✅ Generic HTTP Client Agent created (granite3.2:2b)" || echo "    ❌ Failed to create Generic HTTP Client Agent"
 
-    echo "🤖 PURL analysis agents created successfully!"
+    echo "🤖 PURL analysis agents created successfully with granite3.2:2b model!"
     echo ""
 }
 
@@ -290,48 +294,80 @@ create_purl_workflows() {
     echo ""
 }
 
-warmup_models_directly() {
-    echo "🔥 Warming up models using framework's built-in mechanisms..."
+warmup_granite_model() {
+    echo "🔥 Warming up granite3.2:2b model specifically..."
     
     check_ollama_service
     
-    # Check available models
-    echo "  Checking available models..."
+    # Check if granite3.2:2b model is available
+    echo "  Checking for granite3.2:2b model..."
     MODELS=$(curl -s "http://localhost:11434/api/tags" 2>/dev/null | jq -r '.models[].name' 2>/dev/null || echo "")
     
-    if [ -n "$MODELS" ] && [ "$MODELS" != "null" ]; then
-        echo "    Available models:"
-        echo "$MODELS" | while read -r model; do
-            if [ -n "$model" ] && [ "$model" != "null" ]; then
-                echo "      📦 $model"
-            fi
-        done
+    if echo "$MODELS" | grep -q "granite3.2:2b" 2>/dev/null; then
+        echo "    ✅ granite3.2:2b model found"
         
-        # Warm up models by making simple requests
-        echo "  Warming up models..."
-        echo "$MODELS" | head -3 | while read -r model; do
-            if [ -n "$model" ] && [ "$model" != "null" ]; then
-                echo "    🔥 Warming up $model..."
-                
-                # Simple warm-up request using framework's API
-                curl -s -X POST "$API_BASE/chat" \
-                    -H "Content-Type: application/json" \
-                    -d "{
-                        \"message\": \"Hello, this is a warm-up test. Please respond with: $model is ready\",
-                        \"model\": \"$model\"
-                    }" > /dev/null 2>&1 && \
-                    echo "      ✅ $model warmed up" || \
-                    echo "      ⚠️  $model warm-up may have issues"
-                
-                sleep 2
-            fi
-        done
+        # Warm up granite3.2:2b model specifically
+        echo "  🔥 Warming up granite3.2:2b model..."
+        
+        # Use framework's warmup endpoint if available
+        if curl -s -X POST "$API_BASE/models/warmup/granite3.2:2b" > /dev/null 2>&1; then
+            echo "    ✅ granite3.2:2b warmed up using framework endpoint"
+        else
+            # Fallback: Simple warm-up request using agent execution
+            echo "    🔄 Using agent execution for warm-up..."
+            curl -s -X POST "$API_BASE/agents/purl_parser/execute" \
+                -H "Content-Type: application/json" \
+                -d '{
+                    "task": "Hello, this is a warm-up test for granite3.2:2b. Please respond with: granite3.2:2b model is ready and warmed up",
+                    "context": {"warmup": true}
+                }' > /dev/null 2>&1 && \
+                echo "    ✅ granite3.2:2b warmed up via agent execution" || \
+                echo "    ⚠️  granite3.2:2b warm-up may have issues"
+        fi
+        
+        # Additional warm-up with different agent types
+        echo "  🔄 Warming up granite3.2:2b with different agent tasks..."
+        
+        # Warm up API client agent
+        curl -s -X POST "$API_BASE/agents/api_client_clearlydefined/execute" \
+            -H "Content-Type: application/json" \
+            -d '{
+                "task": "Warm-up test: Explain your capabilities briefly",
+                "context": {"warmup": true}
+            }' > /dev/null 2>&1 && \
+            echo "    ✅ API client agent warmed up" || \
+            echo "    ⚠️  API client agent warm-up issues"
+        
+        # Warm up analyzer agent
+        curl -s -X POST "$API_BASE/agents/package_analyzer_clearlydefined/execute" \
+            -H "Content-Type: application/json" \
+            -d '{
+                "task": "Warm-up test: How would you analyze a package with MIT license?",
+                "context": {"warmup": true}
+            }' > /dev/null 2>&1 && \
+            echo "    ✅ Analyzer agent warmed up" || \
+            echo "    ⚠️  Analyzer agent warm-up issues"
+        
     else
-        echo "    ⚠️  No models found or Ollama not accessible"
-        echo "    📥 Models may still be downloading..."
+        echo "    ⚠️  granite3.2:2b model not found"
+        echo "    📥 Available models:"
+        if [ -n "$MODELS" ] && [ "$MODELS" != "null" ]; then
+            echo "$MODELS" | while read -r model; do
+                if [ -n "$model" ] && [ "$model" != "null" ]; then
+                    echo "      - $model"
+                fi
+            done
+        else
+            echo "      No models found or Ollama not accessible"
+        fi
+        echo ""
+        echo "    📋 To install granite3.2:2b model, run:"
+        echo "    curl -X POST 'http://localhost:8000/models/install' \\"
+        echo "      -H 'Content-Type: application/json' \\"
+        echo "      -d '{\"model_name\": \"granite3.2:2b\", \"wait_for_completion\": true}'"
     fi
     
-    echo "🔥 Model warm-up completed!"
+    echo "🔥 granite3.2:2b model warm-up completed!"
     echo ""
 }
 
@@ -412,7 +448,7 @@ show_summary() {
     echo "📋 Setup Summary"
     echo "================"
     echo ""
-    echo "✅ Created Agents:"
+    echo "✅ Created Agents (all using granite3.2:2b):"
     echo "   📦 purl_parser - Generic PURL parser"
     echo "   🌐 api_client_clearlydefined - ClearlyDefined API client"
     echo "   🔍 package_analyzer_clearlydefined - ClearlyDefined analyzer"
@@ -422,6 +458,10 @@ show_summary() {
     echo "   📦 purl_analysis_clearlydefined - Full PURL analysis"
     echo "   ⚡ quick_purl_clearlydefined - Quick PURL analysis"
     echo "   🔄 purl_multi_api_comparison - Multi-API comparison"
+    echo ""
+    echo "🔥 Model Configuration:"
+    echo "   🏗️  All agents use: granite3.2:2b"
+    echo "   ⚡ granite3.2:2b model warmed up and ready"
     echo ""
     echo "🚀 Usage Examples:"
     echo ""
@@ -435,11 +475,15 @@ show_summary() {
     echo '  -H "Content-Type: application/json" \'
     echo '  -d '"'"'{"context": {"purl": "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.13.0"}}'"'"''
     echo ""
+    echo "# Check granite3.2:2b model status:"
+    echo 'curl "http://localhost:8000/models/status/granite3.2:2b"'
+    echo ""
     echo "🌐 Available Endpoints:"
     echo "   • API Documentation: http://localhost:8000/docs"
     echo "   • Health Check: http://localhost:8000/health"
     echo "   • Agents: http://localhost:8000/agents"
     echo "   • Workflows: http://localhost:8000/workflows"
+    echo "   • Model Status: http://localhost:8000/models/status"
     echo ""
 }
 
@@ -457,7 +501,7 @@ main() {
     
     create_purl_agents
     create_purl_workflows
-    warmup_models_directly
+    warmup_granite_model
     test_agent_functionality
     test_system
     show_summary
@@ -478,7 +522,7 @@ case "${1:-setup}" in
         ;;
     "warmup")
         check_api_availability
-        warmup_models_directly
+        warmup_granite_model
         ;;
     "test")
         check_api_availability
