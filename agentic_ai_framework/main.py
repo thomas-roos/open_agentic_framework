@@ -480,24 +480,6 @@ async def delete_model(model_name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/models/recommended")
-async def get_recommended_models():
-    """Get list of recommended models for different use cases"""
-    return {
-        "lightweight": [
-            {"name": "smollm:135m", "size": "92MB", "use_case": "Ultra-lightweight tasks"},
-            {"name": "tinyllama:1.1b", "size": "637MB", "use_case": "General lightweight tasks"}
-        ],
-        "standard": [
-            {"name": "granite3.2:2b", "size": "700MB", "use_case": "Balanced performance"},
-            {"name": "deepseek-r1:1.5b", "size": "1.1GB", "use_case": "Reasoning and tool calling"}
-        ],
-        "performance": [
-            {"name": "llama3:8b", "size": "4.7GB", "use_case": "High performance tasks"},
-            {"name": "deepseek-coder:6.7b", "size": "3.8GB", "use_case": "Advanced coding tasks"}
-        ]
-    }
-
 # Model Warmup endpoints
 @app.post("/models/warmup")
 async def warmup_models(model_names: List[str] = None, background_tasks: BackgroundTasks = None):
