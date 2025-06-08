@@ -1,8 +1,11 @@
 """
-managers/agent_manager.py - Enhanced Agent Manager with Multi-Provider LLM Support
+managers/agent_manager.py - FIXED: Enhanced Agent Manager with Proper Context Passing
 
-Updated to use LLMProviderManager instead of OllamaClient.
-Maintains the same interface while adding multi-provider support.
+Fixed the _build_simple_system_prompt method to include all agent context:
+- Backstory (contains the critical PURL parsing rules)
+- Goals
+- Execution context
+- Proper role definition
 """
 
 import json
@@ -54,8 +57,8 @@ class AgentManager:
         memory_entries = self.memory_manager.get_agent_memory(agent_name, limit=memory_limit)
         chat_history = self._build_chat_history(memory_entries)
         
-        # Build system prompt
-        system_prompt = self._build_simple_system_prompt(agent, task, context)
+        # Build comprehensive system prompt with all agent context
+        system_prompt = self._build_comprehensive_system_prompt(agent, task, context)
         
         iteration = 0
         max_iterations = min(self.config.max_agent_iterations, 3)
@@ -80,6 +83,11 @@ class AgentManager:
                 tool_calls = self._parse_tool_calls_aggressive(response)
                 
                 if not tool_calls:
+                    # If no tools are available, this is likely the final answer
+                    if not agent.get("tools"):
+                        logger.info(f"Agent {agent_name} completed without tools (no tools available)")
+                        break
+                    
                     # Try to force tool usage if iteration 1 and tools available
                     if iteration == 1 and agent.get("tools"):
                         logger.info(f"No tool calls found, re-prompting LLM with explicit instructions")
@@ -183,6 +191,71 @@ class AgentManager:
             
             raise
     
+    def _build_comprehensive_system_prompt(
+        self, 
+        agent: Dict[str, Any], 
+        task: str, 
+        context: Dict[str, Any]
+    ) -> str:
+        """Build comprehensive system prompt with ALL agent context"""
+        tools_list = self._get_simple_tool_list(agent["tools"])
+        
+        # Start with agent identity and role
+        prompt_parts = [
+            f"You are {agent['name']}: {agent['role']}"
+        ]
+        
+        # Add agent's goals if available
+        if agent.get("goals"):
+            prompt_parts.append(f"\nYour Goals:\n{agent['goals']}")
+        
+        # Add agent's backstory - THIS IS CRITICAL for your PURL parsing rules
+        if agent.get("backstory"):
+            prompt_parts.append(f"\nYour Background and Rules:\n{agent['backstory']}")
+        
+        # Add the current task
+        prompt_parts.append(f"\nCurrent Task: {task}")
+        
+        # Add execution context if provided
+        if context:
+            context_str = ""
+            for key, value in context.items():
+                if isinstance(value, (dict, list)):
+                    context_str += f"\n- {key}: {json.dumps(value, indent=2)}"
+                else:
+                    context_str += f"\n- {key}: {value}"
+            
+            if context_str:
+                prompt_parts.append(f"\nExecution Context:{context_str}")
+        
+        # Add tool information if tools are available
+        if agent.get("tools"):
+            prompt_parts.append(f"\nAvailable Tools: {tools_list}")
+            prompt_parts.append("""
+IMPORTANT: To use a tool, use this exact format:
+TOOL_CALL: tool_name(parameter=value)
+
+Examples:
+- TOOL_CALL: website_monitor(url=https://google.com, expected_status=200)
+- TOOL_CALL: http_client(url=https://api.example.com, method=GET)
+
+If the task requires checking a website or URL, you MUST use the website_monitor tool.
+If the task requires making HTTP requests, you MUST use the http_client tool.""")
+        else:
+            prompt_parts.append("\nYou have no tools available. Respond directly using your knowledge and the rules provided.")
+        
+        # Final instruction
+        prompt_parts.append("""
+Follow the rules and formats specified in your background. Be precise and accurate.
+If you need to return structured data (like JSON), format it correctly.""")
+        
+        final_prompt = "\n".join(prompt_parts)
+        
+        # Log the system prompt for debugging (truncated)
+        logger.debug(f"System prompt for {agent['name']} (first 500 chars): {final_prompt[:500]}...")
+        
+        return final_prompt
+    
     def _create_explicit_tool_instruction(self, agent: Dict[str, Any], task: str) -> str:
         """Create explicit instruction to force the LLM to use tools"""
         available_tools = agent.get("tools", [])
@@ -261,34 +334,16 @@ Use the appropriate tool for: "{task}" """
         
         return None
     
+    # Keep the old method for backward compatibility but mark it as deprecated
     def _build_simple_system_prompt(
         self, 
         agent: Dict[str, Any], 
         task: str, 
         context: Dict[str, Any]
     ) -> str:
-        """Build simple system prompt optimized for small models"""
-        tools_list = self._get_simple_tool_list(agent["tools"])
-        
-        prompt = f"""You are {agent['name']}: {agent['role']}
-
-Your task: {task}
-
-Available tools: {tools_list}
-
-IMPORTANT: To use a tool, use this exact format:
-TOOL_CALL: tool_name(parameter=value)
-
-Examples:
-- TOOL_CALL: website_monitor(url=https://google.com, expected_status=200)
-- TOOL_CALL: http_client(url=https://api.example.com, method=GET)
-
-If the task requires checking a website or URL, you MUST use the website_monitor tool.
-If the task requires making HTTP requests, you MUST use the http_client tool.
-
-Never write code. Use tools when available and appropriate."""
-        
-        return prompt
+        """DEPRECATED: Use _build_comprehensive_system_prompt instead"""
+        logger.warning("Using deprecated _build_simple_system_prompt. Please use _build_comprehensive_system_prompt")
+        return self._build_comprehensive_system_prompt(agent, task, context)
     
     def _get_simple_tool_list(self, tool_names: List[str]) -> str:
         """Get simple list of available tools"""

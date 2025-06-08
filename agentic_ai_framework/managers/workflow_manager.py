@@ -1,8 +1,7 @@
 """
-managers/workflow_manager.py - Workflow Orchestration
+managers/workflow_manager.py - Debug Version with Enhanced Logging
 
-Manages workflow execution and orchestration.
-Handles step-by-step execution of complex workflows with variable substitution.
+This version includes extensive debugging to identify variable resolution issues.
 """
 
 import re
@@ -13,44 +12,22 @@ from typing import Dict, Any, List, Optional
 logger = logging.getLogger(__name__)
 
 class WorkflowManager:
-    """Manages workflow execution and orchestration"""
+    """Debug workflow manager with enhanced logging"""
     
     def __init__(self, agent_manager, tool_manager, memory_manager):
-        """
-        Initialize workflow manager
-        
-        Args:
-            agent_manager: Agent manager for executing agent steps
-            tool_manager: Tool manager for executing tool steps
-            memory_manager: Memory manager for persistence
-        """
         self.agent_manager = agent_manager
         self.tool_manager = tool_manager
         self.memory_manager = memory_manager
-        logger.info("Initialized workflow manager")
+        logger.info("Initialized debug workflow manager")
     
     async def execute_workflow(
         self, 
         workflow_name: str, 
         context: Dict[str, Any] = None
     ) -> Dict[str, Any]:
-        """
-        Execute a complete workflow
-        
-        Args:
-            workflow_name: Name of the workflow to execute
-            context: Initial workflow context
-            
-        Returns:
-            Workflow execution result
-            
-        Raises:
-            ValueError: If workflow not found or disabled
-            Exception: If workflow execution fails
-        """
+        """Execute workflow with extensive debugging"""
         context = context or {}
         
-        # Get workflow definition
         workflow = self.memory_manager.get_workflow(workflow_name)
         if not workflow:
             raise ValueError(f"Workflow {workflow_name} not found")
@@ -58,31 +35,70 @@ class WorkflowManager:
         if not workflow.get("enabled", True):
             raise ValueError(f"Workflow {workflow_name} is disabled")
         
-        logger.info(f"Starting workflow {workflow_name}")
+        logger.info(f"Starting workflow {workflow_name} with initial context: {context}")
         
         results = []
         workflow_context = context.copy()
         
         for i, step in enumerate(workflow["steps"]):
             try:
-                logger.info(f"Executing workflow step {i+1}/{len(workflow['steps'])}: {step}")
+                logger.info(f"=== STEP {i+1}/{len(workflow['steps'])} ===")
+                logger.info(f"Step definition: {step}")
+                logger.info(f"Current context keys: {list(workflow_context.keys())}")
+                logger.info(f"Current context: {workflow_context}")
                 
                 # Resolve variables in step parameters
                 resolved_step = self._resolve_variables(step, workflow_context)
+                logger.info(f"Resolved step: {resolved_step}")
                 
                 if resolved_step["type"] == "agent":
-                    # Execute agent step
                     result = await self._execute_agent_step(resolved_step, workflow_context)
+                    logger.info(f"Agent result type: {type(result)}")
+                    logger.info(f"Agent result (raw): {repr(result)}")
+                    
+                    # Enhanced JSON parsing with debugging
+                    original_result = result
+                    try:
+                        if isinstance(result, str):
+                            # Try to extract JSON from the response
+                            json_match = re.search(r'\{.*\}', result.strip(), re.DOTALL)
+                            if json_match:
+                                json_str = json_match.group(0)
+                                logger.info(f"Extracted JSON string: {json_str}")
+                                parsed_result = json.loads(json_str)
+                                logger.info(f"Successfully parsed JSON: {parsed_result}")
+                                result = parsed_result
+                            elif result.strip().startswith('{') and result.strip().endswith('}'):
+                                parsed_result = json.loads(result.strip())
+                                logger.info(f"Successfully parsed full response as JSON: {parsed_result}")
+                                result = parsed_result
+                            else:
+                                logger.info("Agent result doesn't look like JSON, keeping as string")
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse agent result as JSON: {e}")
+                        logger.warning(f"Original result: {repr(original_result)}")
+                        # Keep original result
+                        result = original_result
+                    
                 elif resolved_step["type"] == "tool":
-                    # Execute tool step
                     result = await self._execute_tool_step(resolved_step, workflow_context)
+                    logger.info(f"Tool result type: {type(result)}")
+                    logger.info(f"Tool result: {result}")
                 else:
                     raise ValueError(f"Unknown step type: {resolved_step['type']}")
                 
                 # Store result in context if context_key is specified
                 if resolved_step.get("context_key"):
-                    workflow_context[resolved_step["context_key"]] = result
-                    logger.debug(f"Stored result in context key: {resolved_step['context_key']}")
+                    context_key = resolved_step["context_key"]
+                    workflow_context[context_key] = result
+                    logger.info(f"Stored result in context key '{context_key}'")
+                    logger.info(f"Updated context keys: {list(workflow_context.keys())}")
+                    
+                    # Debug: Show what's actually stored
+                    if isinstance(result, dict):
+                        logger.info(f"Stored dict with keys: {list(result.keys())}")
+                        for key, value in result.items():
+                            logger.info(f"  {context_key}.{key} = {repr(value)}")
                 
                 results.append({
                     "step": i + 1,
@@ -92,11 +108,12 @@ class WorkflowManager:
                     "context_key": resolved_step.get("context_key")
                 })
                 
-                logger.info(f"Workflow step {i+1} completed successfully")
+                logger.info(f"Step {i+1} completed successfully")
                 
             except Exception as e:
                 error_msg = f"Error in workflow step {i+1}: {e}"
                 logger.error(error_msg)
+                logger.error(f"Context at error: {workflow_context}")
                 results.append({
                     "step": i + 1,
                     "type": step["type"],
@@ -104,8 +121,6 @@ class WorkflowManager:
                     "error": str(e)
                 })
                 raise Exception(f"Workflow {workflow_name} failed at step {i+1}: {e}")
-        
-        logger.info(f"Workflow {workflow_name} completed successfully")
         
         return {
             "workflow_name": workflow_name,
@@ -120,20 +135,11 @@ class WorkflowManager:
         step: Dict[str, Any], 
         context: Dict[str, Any]
     ) -> str:
-        """
-        Execute an agent step in the workflow
-        
-        Args:
-            step: Step configuration
-            context: Current workflow context
-            
-        Returns:
-            Agent execution result
-        """
+        """Execute an agent step in the workflow"""
         agent_name = step["name"]
         task = step.get("task", "Complete the assigned task")
         
-        logger.debug(f"Executing agent {agent_name} with task: {task}")
+        logger.info(f"Executing agent {agent_name} with task: {task}")
         
         return await self.agent_manager.execute_agent(agent_name, task, context)
     
@@ -142,38 +148,86 @@ class WorkflowManager:
         step: Dict[str, Any], 
         context: Dict[str, Any]
     ) -> Any:
-        """
-        Execute a tool step in the workflow
-        
-        Args:
-            step: Step configuration
-            context: Current workflow context
-            
-        Returns:
-            Tool execution result
-        """
+        """Execute a tool step with enhanced debugging"""
         tool_name = step["name"]
         parameters = step.get("parameters", {})
         
-        logger.debug(f"Executing tool {tool_name} with parameters: {parameters}")
+        logger.info(f"Tool step parameters before execution: {parameters}")
+        
+        # Check for None values in parameters
+        for param_name, param_value in parameters.items():
+            if param_value is None:
+                logger.error(f"Parameter '{param_name}' is None! This will cause the tool to fail.")
+                logger.error(f"Full parameters: {parameters}")
+                raise ValueError(f"Tool parameter '{param_name}' resolved to None")
+        
+        logger.info(f"Executing tool {tool_name} with parameters: {parameters}")
         
         return await self.tool_manager.execute_tool(tool_name, parameters)
+    
+    def _substitute_variables(self, text: str, context: Dict[str, Any]) -> str:
+        """Enhanced variable substitution with debugging"""
+        if not isinstance(text, str):
+            return text
+        
+        logger.debug(f"Substituting variables in: '{text}'")
+        logger.debug(f"Available context: {context}")
+        
+        # Pattern to match {{variable}} or {{object.property}}
+        pattern = r'\{\{([^}]+)\}\}'
+        
+        def replace_var(match):
+            var_path = match.group(1).strip()
+            logger.debug(f"Processing variable: {var_path}")
+            
+            try:
+                # Handle nested property access (e.g., parsed_purl.url)
+                if '.' in var_path:
+                    parts = var_path.split('.')
+                    value = context
+                    
+                    logger.debug(f"Navigating path: {parts}")
+                    for i, part in enumerate(parts):
+                        logger.debug(f"  Step {i}: accessing '{part}' in {type(value)}")
+                        if isinstance(value, dict) and part in value:
+                            value = value[part]
+                            logger.debug(f"  Found: {repr(value)}")
+                        else:
+                            logger.error(f"Cannot access {var_path}: '{part}' not found in {type(value)}")
+                            if isinstance(value, dict):
+                                logger.error(f"Available keys: {list(value.keys())}")
+                            return match.group(0)  # Return original if not found
+                    
+                    result = str(value) if not isinstance(value, str) else value
+                    logger.debug(f"Variable {var_path} resolved to: {repr(result)}")
+                    return result
+                
+                # Simple variable access
+                elif var_path in context:
+                    value = context[var_path]
+                    result = str(value) if not isinstance(value, str) else value
+                    logger.debug(f"Variable {var_path} resolved to: {repr(result)}")
+                    return result
+                else:
+                    logger.error(f"Variable {var_path} not found in context")
+                    logger.error(f"Available variables: {list(context.keys())}")
+                    return match.group(0)  # Keep original if not found
+                    
+            except Exception as e:
+                logger.error(f"Error resolving variable {var_path}: {e}")
+                return match.group(0)  # Keep original on error
+        
+        result = re.sub(pattern, replace_var, text)
+        logger.debug(f"Final substitution result: '{result}'")
+        return result
     
     def _resolve_variables(
         self, 
         step: Dict[str, Any], 
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Resolve variables in step definition using workflow context
-        
-        Args:
-            step: Step configuration with variables
-            context: Current workflow context
-            
-        Returns:
-            Step configuration with resolved variables
-        """
+        """Resolve variables in step definition with debugging"""
+        logger.debug(f"Resolving variables in step: {step}")
         resolved_step = {}
         
         for key, value in step.items():
@@ -186,6 +240,7 @@ class WorkflowManager:
             else:
                 resolved_step[key] = value
         
+        logger.debug(f"Resolved step result: {resolved_step}")
         return resolved_step
     
     def _resolve_dict_variables(
@@ -193,16 +248,7 @@ class WorkflowManager:
         data: Dict[str, Any], 
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Recursively resolve variables in dictionary
-        
-        Args:
-            data: Dictionary with potential variables
-            context: Current workflow context
-            
-        Returns:
-            Dictionary with resolved variables
-        """
+        """Recursively resolve variables in dictionary"""
         resolved = {}
         
         for key, value in data.items():
@@ -222,16 +268,7 @@ class WorkflowManager:
         data: List[Any], 
         context: Dict[str, Any]
     ) -> List[Any]:
-        """
-        Recursively resolve variables in list
-        
-        Args:
-            data: List with potential variables
-            context: Current workflow context
-            
-        Returns:
-            List with resolved variables
-        """
+        """Recursively resolve variables in list"""
         resolved = []
         
         for item in data:
@@ -246,45 +283,8 @@ class WorkflowManager:
         
         return resolved
     
-    def _substitute_variables(self, text: str, context: Dict[str, Any]) -> str:
-        """
-        Substitute variables in text using context
-        
-        Variables are in the format {variable_name}
-        
-        Args:
-            text: Text with potential variables
-            context: Current workflow context
-            
-        Returns:
-            Text with substituted variables
-        """
-        # Pattern to match {variable_name}
-        pattern = r'\{([^}]+)\}'
-        
-        def replace_var(match):
-            var_name = match.group(1)
-            if var_name in context:
-                value = context[var_name]
-                # Convert to string if not already
-                return str(value) if not isinstance(value, str) else value
-            else:
-                # Variable not found, keep original
-                logger.warning(f"Variable {var_name} not found in context")
-                return match.group(0)
-        
-        return re.sub(pattern, replace_var, text)
-    
     def validate_workflow(self, workflow_definition: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Validate a workflow definition
-        
-        Args:
-            workflow_definition: Workflow configuration to validate
-            
-        Returns:
-            Validation result with status and any errors
-        """
+        """Validate a workflow definition"""
         errors = []
         warnings = []
         
@@ -303,19 +303,6 @@ class WorkflowManager:
             step_errors = self._validate_step(step, i + 1)
             errors.extend(step_errors)
         
-        # Check for circular dependencies or invalid variable references
-        context_keys = set()
-        for step in steps:
-            if step.get("context_key"):
-                context_keys.add(step["context_key"])
-        
-        for i, step in enumerate(steps):
-            # Check if step references variables that don't exist yet
-            referenced_vars = self._extract_variables(step)
-            for var in referenced_vars:
-                if var not in context_keys:
-                    warnings.append(f"Step {i+1} references undefined variable: {var}")
-        
         return {
             "valid": len(errors) == 0,
             "errors": errors,
@@ -323,19 +310,9 @@ class WorkflowManager:
         }
     
     def _validate_step(self, step: Dict[str, Any], step_number: int) -> List[str]:
-        """
-        Validate a single workflow step
-        
-        Args:
-            step: Step configuration
-            step_number: Step number for error reporting
-            
-        Returns:
-            List of validation errors
-        """
+        """Validate a single workflow step"""
         errors = []
         
-        # Check required fields
         if "type" not in step:
             errors.append(f"Step {step_number}: Missing 'type' field")
             return errors
@@ -364,41 +341,8 @@ class WorkflowManager:
         
         return errors
     
-    def _extract_variables(self, data: Any) -> List[str]:
-        """
-        Extract variable names from data structure
-        
-        Args:
-            data: Data to scan for variables
-            
-        Returns:
-            List of variable names found
-        """
-        variables = []
-        
-        if isinstance(data, str):
-            pattern = r'\{([^}]+)\}'
-            matches = re.findall(pattern, data)
-            variables.extend(matches)
-        elif isinstance(data, dict):
-            for value in data.values():
-                variables.extend(self._extract_variables(value))
-        elif isinstance(data, list):
-            for item in data:
-                variables.extend(self._extract_variables(item))
-        
-        return variables
-    
     def get_workflow_status(self, workflow_name: str) -> Dict[str, Any]:
-        """
-        Get status of a workflow
-        
-        Args:
-            workflow_name: Name of the workflow
-            
-        Returns:
-            Workflow status information
-        """
+        """Get status of a workflow"""
         workflow = self.memory_manager.get_workflow(workflow_name)
         if not workflow:
             return {"status": "not_found"}
