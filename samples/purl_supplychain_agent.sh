@@ -39,35 +39,74 @@ curl -X POST "http://localhost:8000/agents" \
     "enabled": true
   }'
 
-
-curl -X POST "http://localhost:8000/workflows" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "purl_license_assessment",
-    "description": "Complete PURL-based license and security risk assessment workflow that parses Package URLs, fetches data from ClearlyDefined API, and provides comprehensive risk analysis",
-    "steps": [
-      {
-        "type": "agent",
-        "name": "purl_parser",
-        "task": "parse the purl {{purl}} and produce a ClearlyDefined API call url. Only respond with a JSON with the URL.",
-        "context_key": "parsed_purl"
-      },
-      {
-        "type": "tool",
-        "name": "http_client",
-        "task": "url:{{parsed_purl.url}}",
-        "context_key": "package_data"
-      },
-      {
-        "type": "agent",
-        "name": "license_assessor",
-        "task": "Analyze the package data and provide comprehensive license and security risk assessment. Package info: {{package_data}}. Original PURL: {{purl}}. Parsed components: {{parsed_purl}}",
-        "context_key": "risk_assessment"
-      }
-    ],
-    "enabled": true
-  }'
+  curl -X POST "http://localhost:8000/workflows" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "purl_license_assessment",
+      "description": "Complete PURL-based license and security risk assessment workflow with data extraction",
+      "steps": [
+        {
+          "type": "agent",
+          "name": "purl_parser", 
+          "task": "parse the purl {{purl}} and produce a ClearlyDefined API call url. Only respond with a JSON with the URL.",
+          "context_key": "parsed_purl"
+        },
+        {
+          "type": "tool",
+          "name": "http_client",
+          "parameters": {
+            "url": "{{parsed_purl.url}}",
+            "method": "GET",
+            "timeout": 30
+          },
+          "context_key": "raw_api_response"
+        },
+		{
+		    "type": "tool",
+		    "name": "data_extractor",
+		    "parameters": {
+		        "source_data": "{{raw_api_response.content.described}}",
+		        "extractions": [
+					{
+					  "name": "full_raw_data",
+					  "type": "path", 
+					  "query": "raw_text",
+					  "default": "no raw_text",
+					  "format": "text"
+					}
+		        ],
+		        "output_format": "object"
+		    },
+		    "context_key": "package_analysis_metadata"
+		},
+		{
+		    "type": "tool",
+		    "name": "data_extractor",
+		    "parameters": {
+		        "source_data": "{{raw_api_response.content.licensed}}",
+		        "extractions": [
+					{
+					  "name": "full_raw_data",
+					  "type": "path", 
+					  "query": "raw_text",
+					  "default": "no raw_text",
+					  "format": "text"
+					}
+		        ],
+		        "output_format": "object"
+		    },
+		    "context_key": "package_analysis_licensed"
+		},
+        {
+          "type": "agent",
+          "name": "license_assessor",
+          "task": "Analyze the package data and provide comprehensive license and security risk assessment. Package metadata: {{package_analysis_metadata}} and the license information: {{package_analysis_licensed}}",
+          "context_key": "risk_assessment"
+        }
+      ],
+      "enabled": true
+    }'
   
 curl -X POST "http://localhost:8000/workflows/purl_license_assessment/execute" \
   -H "Content-Type: application/json" \
-  -d '{"context": {"purl": "pkg:npm/lodash@4.17.21"}}'
+  -d '{"context": {"purl": "pkg:npm/lodash@4.17.21"}}' | jq .

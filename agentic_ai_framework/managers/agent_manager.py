@@ -1,11 +1,8 @@
 """
-managers/agent_manager.py - FIXED: Enhanced Agent Manager with Proper Context Passing
+managers/agent_manager.py - FIXED: Enhanced Agent Manager with Context Filtering
 
-Fixed the _build_simple_system_prompt method to include all agent context:
-- Backstory (contains the critical PURL parsing rules)
-- Goals
-- Execution context
-- Proper role definition
+Key Fix: Only pass relevant context data to agents based on their specific needs.
+This prevents data overload while preserving all agent identity information.
 """
 
 import json
@@ -19,14 +16,14 @@ from providers.base_llm_provider import Message, GenerationConfig
 logger = logging.getLogger(__name__)
 
 class AgentManager:
-    """Enhanced agent execution manager with multi-provider LLM support"""
+    """Enhanced agent execution manager with context filtering"""
     
     def __init__(self, llm_manager, memory_manager, tool_manager, config):
         self.llm_manager = llm_manager
         self.memory_manager = memory_manager
         self.tool_manager = tool_manager
         self.config = config
-        logger.info("Initialized enhanced agent manager with multi-provider LLM support")
+        logger.info("Initialized enhanced agent manager with context filtering")
     
     async def execute_agent(
         self, 
@@ -34,7 +31,7 @@ class AgentManager:
         task: str, 
         context: Dict[str, Any] = None
     ) -> str:
-        """Execute agent with memory limits and automatic cleanup"""
+        """Execute agent with filtered context to prevent data overload"""
         context = context or {}
         
         # Get agent definition
@@ -47,9 +44,13 @@ class AgentManager:
         
         logger.info(f"Starting execution for agent {agent_name}: {task}")
         
+        # CRITICAL FIX: Filter context for this specific agent
+        filtered_context = self._filter_context_for_agent(agent_name, task, context)
+        logger.info(f"Filtered context for {agent_name}: {list(filtered_context.keys())}")
+        
         # Log task start
         self.memory_manager.add_memory_entry(
-            agent_name, "user", task, {"context": context}
+            agent_name, "user", task, {"context": filtered_context}
         )
         
         # Get recent conversation history (LIMITED to max entries)
@@ -57,8 +58,8 @@ class AgentManager:
         memory_entries = self.memory_manager.get_agent_memory(agent_name, limit=memory_limit)
         chat_history = self._build_chat_history(memory_entries)
         
-        # Build comprehensive system prompt with all agent context
-        system_prompt = self._build_comprehensive_system_prompt(agent, task, context)
+        # Build comprehensive system prompt with FILTERED agent context
+        system_prompt = self._build_comprehensive_system_prompt(agent, task, filtered_context)
         
         iteration = 0
         max_iterations = min(self.config.max_agent_iterations, 3)
@@ -191,13 +192,138 @@ class AgentManager:
             
             raise
     
+    def _filter_context_for_agent(
+        self, 
+        agent_name: str, 
+        task: str, 
+        full_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Filter context to only include data relevant to the specific agent"""
+        
+        # If context is small (< 5 items), pass everything but check for oversized items
+        if len(full_context) <= 5:
+            filtered = {}
+            for key, value in full_context.items():
+                if self._is_oversized_data(key, value):
+                    logger.info(f"Filtering out oversized data '{key}' for agent {agent_name}")
+                    continue
+                filtered[key] = value
+            return filtered
+        
+        # Define agent-specific context filtering rules
+        agent_context_rules = {
+            "purl_parser": {
+                "include": ["purl"],  # Only needs the original PURL
+                "exclude": ["raw_api_response", "package_analysis_*", "license_*"]
+            },
+            "license_assessor": {
+                "include": ["purl", "package_metadata", "license_data", "package_analysis_metadata", "package_analysis_licensed"],
+                "exclude": ["raw_api_response"]  # Exclude the massive raw API response
+            },
+            "security_analyzer": {
+                "include": ["purl", "package_metadata", "license_data", "vulnerability_*"],
+                "exclude": ["raw_api_response"]
+            },
+            "data_extractor": {
+                "include": ["*"],  # Data extractor might need access to everything
+                "exclude": []
+            }
+        }
+        
+        # Get rules for this agent, default to including specific data only
+        rules = agent_context_rules.get(agent_name, {
+            "include": [],
+            "exclude": ["raw_api_response", "*_raw_data"]
+        })
+        
+        filtered_context = {}
+        
+        for key, value in full_context.items():
+            should_include = False
+            
+            # Check include patterns
+            include_patterns = rules.get("include", [])
+            if "*" in include_patterns:
+                should_include = True
+            else:
+                for pattern in include_patterns:
+                    if pattern.endswith("*"):
+                        if key.startswith(pattern[:-1]):
+                            should_include = True
+                            break
+                    elif key == pattern:
+                        should_include = True
+                        break
+            
+            # Check exclude patterns (takes precedence)
+            exclude_patterns = rules.get("exclude", [])
+            for pattern in exclude_patterns:
+                if pattern.endswith("*"):
+                    if key.startswith(pattern[:-1]):
+                        should_include = False
+                        break
+                elif key == pattern:
+                    should_include = False
+                    break
+            
+            # Additional check for oversized data
+            if should_include and self._is_oversized_data(key, value):
+                logger.info(f"Excluding oversized data '{key}' for agent {agent_name}")
+                should_include = False
+            
+            if should_include:
+                filtered_context[key] = value
+            else:
+                logger.debug(f"Filtered out context '{key}' for agent {agent_name}")
+        
+        # If we filtered everything out, include just the basics
+        if not filtered_context and full_context:
+            # Include small, relevant items
+            for key, value in full_context.items():
+                if key in ["purl"] or (isinstance(value, str) and len(value) < 500):
+                    filtered_context[key] = value
+                    if len(filtered_context) >= 3:  # Limit to 3 basic items
+                        break
+        
+        logger.info(f"Context filtering for {agent_name}: {len(full_context)} -> {len(filtered_context)} items")
+        return filtered_context
+    
+    def _is_oversized_data(self, key: str, value: Any) -> bool:
+        """Check if a context item is too large and should be filtered"""
+        
+        # Size-based filtering
+        if isinstance(value, str):
+            if len(value) > 10000:  # 10KB string limit
+                return True
+        elif isinstance(value, dict):
+            json_str = json.dumps(value)
+            if len(json_str) > 20000:  # 20KB JSON limit
+                return True
+        elif isinstance(value, list) and len(value) > 100:  # Large list limit
+            return True
+        
+        # Content-based filtering - known large data patterns
+        oversized_patterns = [
+            "raw_api_response",
+            "full_raw_data",
+            "_response_content",
+            "api_data",
+            "files"  # File lists tend to be huge
+        ]
+        
+        for pattern in oversized_patterns:
+            if pattern in key.lower():
+                return True
+        
+        return False
+    
     def _build_comprehensive_system_prompt(
         self, 
         agent: Dict[str, Any], 
         task: str, 
         context: Dict[str, Any]
     ) -> str:
-        """Build comprehensive system prompt with ALL agent context"""
+        """Build comprehensive system prompt with FILTERED agent context"""
         tools_list = self._get_simple_tool_list(agent["tools"])
         
         # Start with agent identity and role
@@ -216,14 +342,45 @@ class AgentManager:
         # Add the current task
         prompt_parts.append(f"\nCurrent Task: {task}")
         
-        # Add execution context if provided
+        # Add FILTERED execution context
         if context:
             context_str = ""
+            context_size = 0
+            
             for key, value in context.items():
                 if isinstance(value, (dict, list)):
-                    context_str += f"\n- {key}: {json.dumps(value, indent=2)}"
+                    value_json = json.dumps(value, indent=2)
+                    # Truncate large JSON objects
+                    if len(value_json) > 2000:
+                        # Try to provide a summary instead of full data
+                        if isinstance(value, dict):
+                            summary_parts = []
+                            for k, v in value.items():
+                                if isinstance(v, str) and len(v) < 100:
+                                    summary_parts.append(f"  {k}: {v}")
+                                elif isinstance(v, (int, float, bool)):
+                                    summary_parts.append(f"  {k}: {v}")
+                                else:
+                                    summary_parts.append(f"  {k}: <{type(v).__name__}>")
+                                if len(summary_parts) >= 10:  # Limit summary items
+                                    break
+                            context_str += f"\n- {key} (summary):\n" + "\n".join(summary_parts)
+                        else:
+                            context_str += f"\n- {key}: <large {type(value).__name__} with {len(value)} items>"
+                    else:
+                        context_str += f"\n- {key}: {value_json}"
                 else:
-                    context_str += f"\n- {key}: {value}"
+                    # Simple string/number values
+                    value_str = str(value)
+                    if len(value_str) > 1000:
+                        value_str = value_str[:1000] + "... [truncated]"
+                    context_str += f"\n- {key}: {value_str}"
+                
+                context_size += len(context_str)
+                # Stop if context gets too large
+                if context_size > 5000:
+                    context_str += "\n... [additional context truncated for brevity]"
+                    break
             
             if context_str:
                 prompt_parts.append(f"\nExecution Context:{context_str}")
@@ -251,8 +408,10 @@ If you need to return structured data (like JSON), format it correctly.""")
         
         final_prompt = "\n".join(prompt_parts)
         
-        # Log the system prompt for debugging (truncated)
-        logger.debug(f"System prompt for {agent['name']} (first 500 chars): {final_prompt[:500]}...")
+        # Log the system prompt size for monitoring
+        logger.info(f"System prompt for {agent['name']}: {len(final_prompt)} characters")
+        if len(final_prompt) > 15000:
+            logger.warning(f"Large system prompt for {agent['name']}: {len(final_prompt)} chars")
         
         return final_prompt
     
