@@ -1,10 +1,8 @@
 """
-managers/agent_manager.py - Enhanced Agent Manager with Memory Limits
+managers/agent_manager.py - Enhanced Agent Manager with Multi-Provider LLM Support
 
-Enhanced with:
-- Limited memory retrieval (last 5 entries by default)
-- Automatic memory cleanup after execution
-- Configurable memory limits per agent
+Updated to use LLMProviderManager instead of OllamaClient.
+Maintains the same interface while adding multi-provider support.
 """
 
 import json
@@ -13,17 +11,19 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
+from providers.base_llm_provider import Message, GenerationConfig
+
 logger = logging.getLogger(__name__)
 
 class AgentManager:
-    """Enhanced agent execution manager with memory management"""
+    """Enhanced agent execution manager with multi-provider LLM support"""
     
-    def __init__(self, ollama_client, memory_manager, tool_manager, config):
-        self.ollama_client = ollama_client
+    def __init__(self, llm_manager, memory_manager, tool_manager, config):
+        self.llm_manager = llm_manager
         self.memory_manager = memory_manager
         self.tool_manager = tool_manager
         self.config = config
-        logger.info("Initialized enhanced agent manager with memory management")
+        logger.info("Initialized enhanced agent manager with multi-provider LLM support")
     
     async def execute_agent(
         self, 
@@ -65,7 +65,7 @@ class AgentManager:
                 iteration += 1
                 logger.debug(f"Agent {agent_name} iteration {iteration}")
                 
-                # Generate response
+                # Generate response using the LLM manager
                 response = await self._generate_simple_response(
                     system_prompt, agent, task, chat_history, iteration
                 )
@@ -90,10 +90,8 @@ class AgentManager:
                         chat_history.append({"role": "user", "content": tool_instruction})
                         
                         # Generate new response with explicit tool instruction
-                        forced_response = await self.ollama_client.generate_response(
-                            system_prompt,
-                            model=agent.get("ollama_model", self.config.default_model),
-                            chat_history=chat_history
+                        forced_response = await self._generate_with_messages(
+                            agent, chat_history, system_prompt
                         )
                         
                         logger.info(f"LLM response to explicit instruction: {forced_response[:100]}...")
@@ -145,10 +143,8 @@ class AgentManager:
                     chat_history.append({"role": "user", "content": completion_prompt})
                     
                     # Generate final response
-                    final_response = await self.ollama_client.generate_response(
-                        system_prompt,
-                        model=agent.get("ollama_model", self.config.default_model),
-                        chat_history=chat_history
+                    final_response = await self._generate_with_messages(
+                        agent, chat_history, system_prompt
                     )
                     
                     # Log final response
@@ -315,20 +311,63 @@ Never write code. Use tools when available and appropriate."""
         chat_history: List[Dict[str, str]], 
         iteration: int
     ) -> str:
-        """Generate response with explicit task instruction"""
+        """Generate response with explicit task instruction using LLM manager"""
         model_name = agent.get("ollama_model", self.config.default_model)
         
         # Add task to chat history for first iteration
         if iteration == 1:
             chat_history.append({"role": "user", "content": task})
         
-        response = await self.ollama_client.generate_response(
-            system_prompt,
+        # Use the new LLM manager interface
+        response = await self.llm_manager.generate_response(
+            prompt=system_prompt,
             model=model_name,
             chat_history=chat_history
         )
         
         return response
+    
+    async def _generate_with_messages(
+        self, 
+        agent: Dict[str, Any], 
+        chat_history: List[Dict[str, str]], 
+        system_prompt: str
+    ) -> str:
+        """Generate response using chat history and system prompt"""
+        model_name = agent.get("ollama_model", self.config.default_model)
+        
+        # Convert chat history to messages for the LLM manager
+        messages = []
+        
+        # Add system message first if we have a system prompt
+        if system_prompt:
+            messages.append(Message(role="system", content=system_prompt))
+        
+        # Add chat history
+        for msg in chat_history:
+            messages.append(Message(role=msg["role"], content=msg["content"]))
+        
+        # Create generation config
+        config = GenerationConfig(
+            temperature=0.7,
+            max_tokens=None,
+            stream=False
+        )
+        
+        # Generate using the provider directly for more control
+        provider_name, resolved_model = self.llm_manager._resolve_model(model_name)
+        provider = self.llm_manager.get_provider(provider_name)
+        
+        if provider:
+            response_obj = await provider.generate_response(messages, resolved_model, config)
+            return response_obj.content
+        else:
+            # Fallback to the simpler interface
+            return await self.llm_manager.generate_response(
+                prompt=chat_history[-1]["content"] if chat_history else "",
+                model=model_name,
+                chat_history=chat_history[:-1] if chat_history else []
+            )
     
     def _parse_tool_calls_aggressive(self, response: str) -> List[Dict[str, Any]]:
         """Aggressive tool call parsing with multiple patterns and duplicate prevention"""
