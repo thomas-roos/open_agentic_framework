@@ -14,7 +14,7 @@ This guide provides detailed instructions for deploying the Agentic AI Framework
 ### Recommended Droplet Specifications
 
 | Configuration | Droplet Size | RAM | CPU | Storage | Use Case |
-|---------------|--------------|--------------|-----|-----|---------|----------|
+|---------------|--------------|-----|-----|---------|----------|
 | **Development** | s-1vcpu-2gb | 2GB | 1 vCPU | 25GB SSD | Testing, Ollama only |
 | **Production** | s-2vcpu-4gb | 4GB | 2 vCPU | 25GB SSD | **Recommended** |
 | **High Performance** | s-4vcpu-8gb | 8GB | 4 vCPU | 25GB SSD | Multi-provider, heavy workloads |
