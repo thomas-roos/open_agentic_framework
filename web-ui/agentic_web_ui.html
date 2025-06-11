@@ -1,0 +1,1744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic AI Framework</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/react-flow-renderer@10.3.17/dist/index.umd.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+        }
+
+        .app {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: #1e293b;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+        }
+
+        .sidebar-header {
+            padding: 24px 20px;
+            border-bottom: 1px solid #334155;
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            color: #60a5fa;
+        }
+
+        .nav-menu {
+            flex: 1;
+            padding: 20px 0;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            background: none;
+            color: #cbd5e1;
+            width: 100%;
+            text-align: left;
+        }
+
+        .nav-item:hover, .nav-item.active {
+            background: #334155;
+            color: white;
+        }
+
+        .nav-item i {
+            margin-right: 12px;
+            width: 20px;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            background: white;
+            padding: 16px 24px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .page-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .content {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        /* Cards */
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 24px;
+        }
+
+        .card-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: between;
+            align-items: center;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .card-content {
+            padding: 24px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: none;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #475569;
+        }
+
+        .btn-secondary:hover {
+            background: #cbd5e1;
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #374151;
+        }
+
+        .form-input, .form-textarea, .form-select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .form-input:focus, .form-textarea:focus, .form-select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        /* Grid */
+        .grid {
+            display: grid;
+            gap: 24px;
+        }
+
+        .grid-2 {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .grid-3 {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+
+        /* Status indicators */
+        .status {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-online {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-offline {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        /* Agent/Workflow Lists */
+        .item-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .item-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        .item-card:hover {
+            border-color: #3b82f6;
+            background: #f0f9ff;
+        }
+
+        .item-info h4 {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .item-info p {
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        .item-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Workflow Builder */
+        .workflow-builder {
+            height: 600px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            position: relative;
+            background: #fafafa;
+        }
+
+        .workflow-sidebar {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 250px;
+            height: 100%;
+            background: white;
+            border-right: 1px solid #e2e8f0;
+            padding: 16px;
+            z-index: 10;
+        }
+
+        .workflow-canvas {
+            margin-left: 250px;
+            height: 100%;
+            position: relative;
+        }
+
+        .draggable-item {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 8px;
+            cursor: grab;
+            transition: all 0.2s;
+        }
+
+        .draggable-item:hover {
+            border-color: #3b82f6;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .draggable-item:active {
+            cursor: grabbing;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 12px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #64748b;
+        }
+
+        .modal-content {
+            padding: 24px;
+        }
+
+        .modal-footer {
+            padding: 20px 24px;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                position: fixed;
+                z-index: 100;
+                height: 100vh;
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .main-content {
+                margin-left: 0;
+            }
+
+            .grid-2, .grid-3 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: #64748b;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #e2e8f0;
+            border-top: 2px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 12px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Dashboard Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        .stat-change {
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        .stat-change.positive {
+            color: #10b981;
+        }
+
+        .stat-change.negative {
+            color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback } = React;
+
+        // API Client
+        class AgenticAPI {
+            constructor(baseURL = 'http://localhost:8000') {
+                this.baseURL = baseURL;
+            }
+
+            async request(endpoint, options = {}) {
+                try {
+                    console.log(`Making request to: ${this.baseURL}${endpoint}`);
+                    
+                    const response = await fetch(`${this.baseURL}${endpoint}`, {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...options.headers
+                        },
+                        ...options
+                    });
+                    
+                    console.log(`Response status: ${response.status}`);
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+                        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+                    }
+                    
+                    const data = await response.json();
+                    console.log(`Response data:`, data);
+                    return data;
+                } catch (error) {
+                    console.error('API Error:', error);
+                    
+                    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                        throw new Error('Cannot connect to API server. Make sure the Agentic AI Framework is running on http://localhost:8000');
+                    }
+                    
+                    throw error;
+                }
+            }
+
+            // Health & System
+            getHealth() { return this.request('/health'); }
+            async getProviders() { 
+                try {
+                    return await this.request('/providers');
+                } catch (error) {
+                    if (error.message.includes('404')) {
+                        throw new Error('Providers endpoint not available - using older version of Agentic AI Framework');
+                    }
+                    throw error;
+                }
+            }
+            async getModels() { 
+                try {
+                    return await this.request('/models/detailed');
+                } catch (error) {
+                    // Fallback to basic models endpoint
+                    try {
+                        return await this.request('/models');
+                    } catch (fallbackError) {
+                        console.warn('Both /models/detailed and /models failed, using basic fallback');
+                        return { models: [] };
+                    }
+                }
+            }
+            getMemoryStats() { return this.request('/memory/stats'); }
+
+            // Agents
+            getAgents() { return this.request('/agents'); }
+            createAgent(agent) { 
+                return this.request('/agents', { 
+                    method: 'POST', 
+                    body: JSON.stringify(agent) 
+                }); 
+            }
+            updateAgent(name, agent) { 
+                return this.request(`/agents/${name}`, { 
+                    method: 'PUT', 
+                    body: JSON.stringify(agent) 
+                }); 
+            }
+            deleteAgent(name) { 
+                return this.request(`/agents/${name}`, { method: 'DELETE' }); 
+            }
+            executeAgent(name, task, context = {}) {
+                return this.request(`/agents/${name}/execute`, {
+                    method: 'POST',
+                    body: JSON.stringify({ task, context })
+                });
+            }
+
+            // Workflows
+            getWorkflows() { return this.request('/workflows'); }
+            createWorkflow(workflow) { 
+                return this.request('/workflows', { 
+                    method: 'POST', 
+                    body: JSON.stringify(workflow) 
+                }); 
+            }
+            executeWorkflow(name, context = {}) {
+                return this.request(`/workflows/${name}/execute`, {
+                    method: 'POST',
+                    body: JSON.stringify({ context })
+                });
+            }
+
+            // Tools
+            getTools() { return this.request('/tools'); }
+            executeTool(name, parameters) {
+                return this.request(`/tools/${name}/execute`, {
+                    method: 'POST',
+                    body: JSON.stringify({ parameters })
+                });
+            }
+
+            // Scheduling
+            getScheduledTasks() { return this.request('/schedule'); }
+            scheduleTask(task) {
+                return this.request('/schedule', {
+                    method: 'POST',
+                    body: JSON.stringify(task)
+                });
+            }
+        }
+
+        const api = new AgenticAPI();
+
+        // Loading Component
+        const Loading = () => (
+            <div className="loading">
+                <div className="spinner"></div>
+                Loading...
+            </div>
+        );
+
+        // Dashboard Component
+        const Dashboard = () => {
+            const [health, setHealth] = useState(null);
+            const [providers, setProviders] = useState(null);
+            const [memoryStats, setMemoryStats] = useState(null);
+            const [agents, setAgents] = useState([]);
+            const [workflows, setWorkflows] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+
+            useEffect(() => {
+                loadDashboardData();
+            }, []);
+
+            const loadDashboardData = async () => {
+                try {
+                    setLoading(true);
+                    setError(null);
+                    
+                    // Load health data (required)
+                    const healthData = await api.getHealth();
+                    setHealth(healthData);
+                    
+                    // Load providers data (optional - might not exist)
+                    let providersData = null;
+                    try {
+                        providersData = await api.getProviders();
+                        setProviders(providersData);
+                    } catch (providerError) {
+                        console.log('Providers endpoint not available, skipping...');
+                        setProviders(null);
+                    }
+                    
+                    // Load other data
+                    const [memoryData, agentsData, workflowsData] = await Promise.all([
+                        api.getMemoryStats(),
+                        api.getAgents(),
+                        api.getWorkflows()
+                    ]);
+
+                    setMemoryStats(memoryData);
+                    setAgents(agentsData);
+                    setWorkflows(workflowsData);
+                    
+                } catch (err) {
+                    console.error('Failed to load dashboard data:', err);
+                    setError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            if (loading) return <Loading />;
+
+            if (error) {
+                return (
+                    <div className="card">
+                        <div className="card-content">
+                            <div style={{textAlign: 'center', padding: '40px', color: '#ef4444'}}>
+                                <i className="fas fa-exclamation-triangle" style={{fontSize: '48px', marginBottom: '16px'}}></i>
+                                <p>Error loading data: {error}</p>
+                                <button className="btn btn-primary" onClick={loadData} style={{marginTop: '16px'}}>
+                                    <i className="fas fa-refresh"></i> Retry
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            const healthyProviders = providers ? Object.values(providers.providers).filter(p => p.is_healthy).length : 0;
+            const totalProviders = providers ? Object.keys(providers.providers).length : 0;
+
+            return (
+                <div>
+                    <div className="stats-grid">
+                        <div className="stat-card">
+                            <div className="stat-value">{agents.length}</div>
+                            <div className="stat-label">Active Agents</div>
+                            <div className="stat-change positive">
+                                <i className="fas fa-arrow-up"></i> +2 this week
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-value">{workflows.length}</div>
+                            <div className="stat-label">Workflows</div>
+                            <div className="stat-change positive">
+                                <i className="fas fa-arrow-up"></i> +1 this week
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-value">{healthyProviders}/{totalProviders || 'N/A'}</div>
+                            <div className="stat-label">Healthy Providers</div>
+                            <div className="stat-change">
+                                {providers ? (
+                                    totalProviders > 0 ? (
+                                        <span className="positive">
+                                            <i className="fas fa-check"></i> All online
+                                        </span>
+                                    ) : (
+                                        <span>No providers configured</span>
+                                    )
+                                ) : (
+                                    <span style={{color: '#64748b'}}>Providers endpoint not available</span>
+                                )}
+                            </div>
+                        </div>
+                        
+                        <div className="stat-card">
+                            <div className="stat-value">{memoryStats?.total_memory_entries || 0}</div>
+                            <div className="stat-label">Memory Entries</div>
+                            <div className="stat-change">
+                                {memoryStats?.agents_with_memory || 0} agents with memory
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-2">
+                        <div className="card">
+                            <div className="card-header">
+                                <h3 className="card-title">System Health</h3>
+                                <span className={`status ${health?.status === 'healthy' ? 'status-online' : 'status-offline'}`}>
+                                    {health?.status || 'Unknown'}
+                                </span>
+                            </div>
+                            <div className="card-content">
+                                {health?.warmup_stats && (
+                                    <div>
+                                        <p><strong>Model Warmup:</strong></p>
+                                        <p>Active Models: {health.warmup_stats.active_models}/{health.warmup_stats.total_models}</p>
+                                        <p>Success Rate: {health.warmup_stats.success_rate}%</p>
+                                    </div>
+                                )}
+                                
+                                {providers && providers.providers ? (
+                                    <div style={{marginTop: '16px'}}>
+                                        <p><strong>Providers:</strong></p>
+                                        {Object.entries(providers.providers).map(([name, provider]) => (
+                                            <div key={name} style={{display: 'flex', justifyContent: 'space-between', marginTop: '8px'}}>
+                                                <span>{name}</span>
+                                                <span className={`status ${provider.is_healthy ? 'status-online' : 'status-offline'}`}>
+                                                    {provider.is_healthy ? 'Healthy' : 'Offline'}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div style={{marginTop: '16px', color: '#64748b'}}>
+                                        <p>Provider information not available</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="card">
+                            <div className="card-header">
+                                <h3 className="card-title">Recent Activity</h3>
+                            </div>
+                            <div className="card-content">
+                                <div style={{color: '#64748b'}}>
+                                    <p>• Agent 'website_guardian' executed successfully</p>
+                                    <p>• Workflow 'monitoring_pipeline' completed</p>
+                                    <p>• Memory cleanup performed</p>
+                                    <p>• Provider health check passed</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Agent Management Component
+        const AgentManagement = () => {
+            const [agents, setAgents] = useState([]);
+            const [tools, setTools] = useState([]);
+            const [models, setModels] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [showModal, setShowModal] = useState(false);
+            const [editingAgent, setEditingAgent] = useState(null);
+            const [executing, setExecuting] = useState(null);
+            const [error, setError] = useState(null);
+
+            useEffect(() => {
+                loadData();
+            }, []);
+
+            const loadData = async () => {
+                try {
+                    setLoading(true);
+                    setError(null);
+                    
+                    console.log('Loading agents, tools, and models...');
+                    
+                    // Load agents
+                    let agentsData = [];
+                    try {
+                        agentsData = await api.getAgents();
+                        console.log('Agents loaded:', agentsData);
+                        setAgents(Array.isArray(agentsData) ? agentsData : []);
+                    } catch (agentError) {
+                        console.error('Failed to load agents:', agentError);
+                        setAgents([]);
+                    }
+                    
+                    // Load tools
+                    let toolsData = [];
+                    try {
+                        toolsData = await api.getTools();
+                        console.log('Tools loaded:', toolsData);
+                        setTools(Array.isArray(toolsData) ? toolsData : []);
+                    } catch (toolError) {
+                        console.error('Failed to load tools:', toolError);
+                        setTools([]);
+                    }
+                    
+                    // Load models
+                    let modelsData = [];
+                    try {
+                        const modelResponse = await api.getModels();
+                        console.log('Models response:', modelResponse);
+                        modelsData = modelResponse?.models || modelResponse || [];
+                        setModels(Array.isArray(modelsData) ? modelsData : []);
+                    } catch (modelError) {
+                        console.error('Failed to load models:', modelError);
+                        // Fallback to basic models if API fails
+                        setModels([
+                            { name: 'granite3.2:2b', provider: 'ollama' },
+                            { name: 'deepseek-r1:1.5b', provider: 'ollama' },
+                            { name: 'tinyllama:1.1b', provider: 'ollama' }
+                        ]);
+                    }
+                    
+                } catch (error) {
+                    console.error('Failed to load data:', error);
+                    setError(error.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleCreateAgent = () => {
+                setEditingAgent(null);
+                setShowModal(true);
+            };
+
+            const handleEditAgent = (agent) => {
+                setEditingAgent(agent);
+                setShowModal(true);
+            };
+
+            const handleDeleteAgent = async (agentName) => {
+                if (confirm(`Are you sure you want to delete agent "${agentName}"?`)) {
+                    try {
+                        await api.deleteAgent(agentName);
+                        await loadData();
+                    } catch (error) {
+                        alert('Failed to delete agent: ' + error.message);
+                    }
+                }
+            };
+
+            const handleExecuteAgent = async (agentName) => {
+                const task = prompt('Enter task for the agent:');
+                if (!task) return;
+
+                try {
+                    setExecuting(agentName);
+                    const result = await api.executeAgent(agentName, task);
+                    alert(`Agent executed successfully!\n\nResult: ${result.result}`);
+                } catch (error) {
+                    alert('Failed to execute agent: ' + error.message);
+                } finally {
+                    setExecuting(null);
+                }
+            };
+
+            if (loading) return <Loading />;
+
+            return (
+                <div>
+                    <div className="card">
+                        <div className="card-header">
+                            <h3 className="card-title">AI Agents</h3>
+                            <div style={{display: 'flex', gap: '8px'}}>
+                                <button className="btn btn-secondary" onClick={loadData} title="Refresh">
+                                    <i className="fas fa-refresh"></i>
+                                </button>
+                                <button className="btn btn-primary" onClick={handleCreateAgent}>
+                                    <i className="fas fa-plus"></i> Create Agent
+                                </button>
+                            </div>
+                        </div>
+                        <div className="card-content">
+                            {/* Debug Info */}
+                            <div style={{marginBottom: '16px', padding: '8px', background: '#f1f5f9', borderRadius: '4px', fontSize: '12px'}}>
+                                <strong>Debug:</strong> Loaded {agents.length} agents, {tools.length} tools, {models.length} models
+                                {error && <span style={{color: '#ef4444'}}> | Error: {error}</span>}
+                            </div>
+                            {agents.length === 0 ? (
+                                <div style={{textAlign: 'center', padding: '40px', color: '#64748b'}}>
+                                    <i className="fas fa-robot" style={{fontSize: '48px', marginBottom: '16px'}}></i>
+                                    <p>No agents created yet. Create your first agent to get started!</p>
+                                    <button className="btn btn-primary" onClick={handleCreateAgent} style={{marginTop: '16px'}}>
+                                        <i className="fas fa-plus"></i> Create Your First Agent
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="item-list">
+                                    {agents.map(agent => (
+                                        <div key={agent.id} className="item-card">
+                                            <div className="item-info">
+                                                <h4>{agent.name}</h4>
+                                                <p>{agent.role}</p>
+                                                <p style={{fontSize: '12px', color: '#64748b'}}>
+                                                    Model: {agent.ollama_model} | Tools: {agent.tools.join(', ') || 'None'}
+                                                </p>
+                                            </div>
+                                            <div className="item-actions">
+                                                <button 
+                                                    className="btn btn-success"
+                                                    onClick={() => handleExecuteAgent(agent.name)}
+                                                    disabled={executing === agent.name}
+                                                >
+                                                    {executing === agent.name ? (
+                                                        <>
+                                                            <div className="spinner" style={{width: '12px', height: '12px'}}></div>
+                                                            Executing...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <i className="fas fa-play"></i> Execute
+                                                        </>
+                                                    )}
+                                                </button>
+                                                <button 
+                                                    className="btn btn-secondary"
+                                                    onClick={() => handleEditAgent(agent)}
+                                                >
+                                                    <i className="fas fa-edit"></i> Edit
+                                                </button>
+                                                <button 
+                                                    className="btn btn-danger"
+                                                    onClick={() => handleDeleteAgent(agent.name)}
+                                                >
+                                                    <i className="fas fa-trash"></i> Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {showModal && (
+                        <AgentModal
+                            agent={editingAgent}
+                            tools={tools}
+                            models={models}
+                            onClose={() => setShowModal(false)}
+                            onSave={loadData}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        // Agent Modal Component
+        const AgentModal = ({ agent, tools, models, onClose, onSave }) => {
+            const [formData, setFormData] = useState({
+                name: agent?.name || '',
+                role: agent?.role || '',
+                goals: agent?.goals || '',
+                backstory: agent?.backstory || '',
+                ollama_model: agent?.ollama_model || 'granite3.2:2b',
+                tools: agent?.tools || [],
+                enabled: agent?.enabled !== false
+            });
+            const [saving, setSaving] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                
+                if (!formData.name.trim()) {
+                    alert('Agent name is required');
+                    return;
+                }
+
+                try {
+                    setSaving(true);
+                    if (agent) {
+                        await api.updateAgent(agent.name, formData);
+                    } else {
+                        await api.createAgent(formData);
+                    }
+                    await onSave();
+                    onClose();
+                } catch (error) {
+                    alert('Failed to save agent: ' + error.message);
+                } finally {
+                    setSaving(false);
+                }
+            };
+
+            const handleToolToggle = (toolName) => {
+                setFormData(prev => ({
+                    ...prev,
+                    tools: prev.tools.includes(toolName)
+                        ? prev.tools.filter(t => t !== toolName)
+                        : [...prev.tools, toolName]
+                }));
+            };
+
+            return (
+                <div className="modal-overlay" onClick={onClose}>
+                    <div className="modal" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">
+                                {agent ? 'Edit Agent' : 'Create Agent'}
+                            </h3>
+                            <button className="modal-close" onClick={onClose}>
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit}>
+                            <div className="modal-content">
+                                <div className="form-group">
+                                    <label className="form-label">Name</label>
+                                    <input
+                                        className="form-input"
+                                        type="text"
+                                        value={formData.name}
+                                        onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                                        placeholder="Enter agent name"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Role</label>
+                                    <input
+                                        className="form-input"
+                                        type="text"
+                                        value={formData.role}
+                                        onChange={e => setFormData(prev => ({ ...prev, role: e.target.value }))}
+                                        placeholder="e.g., Website Monitoring Specialist"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Goals</label>
+                                    <textarea
+                                        className="form-textarea"
+                                        value={formData.goals}
+                                        onChange={e => setFormData(prev => ({ ...prev, goals: e.target.value }))}
+                                        placeholder="Describe what this agent should accomplish"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Backstory</label>
+                                    <textarea
+                                        className="form-textarea"
+                                        value={formData.backstory}
+                                        onChange={e => setFormData(prev => ({ ...prev, backstory: e.target.value }))}
+                                        placeholder="Give the agent some context and personality"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Model</label>
+                                    <select
+                                        className="form-select"
+                                        value={formData.ollama_model}
+                                        onChange={e => setFormData(prev => ({ ...prev, ollama_model: e.target.value }))}
+                                    >
+                                        {models.map(model => (
+                                            <option key={model.name} value={model.name}>
+                                                {model.name} ({model.provider})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Available Tools</label>
+                                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px'}}>
+                                        {tools.map(tool => (
+                                            <label key={tool.name} style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={formData.tools.includes(tool.name)}
+                                                    onChange={() => handleToolToggle(tool.name)}
+                                                />
+                                                <span>{tool.name}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="form-group">
+                                    <label style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.enabled}
+                                            onChange={e => setFormData(prev => ({ ...prev, enabled: e.target.checked }))}
+                                        />
+                                        <span>Enabled</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={onClose}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={saving}>
+                                    {saving ? (
+                                        <>
+                                            <div className="spinner" style={{width: '12px', height: '12px'}}></div>
+                                            Saving...
+                                        </>
+                                    ) : (
+                                        agent ? 'Update Agent' : 'Create Agent'
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        // Workflow Builder Component
+        const WorkflowBuilder = () => {
+            const [workflows, setWorkflows] = useState([]);
+            const [agents, setAgents] = useState([]);
+            const [tools, setTools] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [showModal, setShowModal] = useState(false);
+            const [editingWorkflow, setEditingWorkflow] = useState(null);
+            const [executing, setExecuting] = useState(null);
+
+            useEffect(() => {
+                loadData();
+            }, []);
+
+            const loadData = async () => {
+                try {
+                    setLoading(true);
+                    const [workflowsData, agentsData, toolsData] = await Promise.all([
+                        api.getWorkflows(),
+                        api.getAgents(),
+                        api.getTools()
+                    ]);
+                    setWorkflows(workflowsData);
+                    setAgents(agentsData);
+                    setTools(toolsData);
+                } catch (error) {
+                    console.error('Failed to load data:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleCreateWorkflow = () => {
+                setEditingWorkflow(null);
+                setShowModal(true);
+            };
+
+            const handleExecuteWorkflow = async (workflowName) => {
+                try {
+                    setExecuting(workflowName);
+                    const result = await api.executeWorkflow(workflowName);
+                    alert(`Workflow executed successfully!\n\nResult: ${JSON.stringify(result, null, 2)}`);
+                } catch (error) {
+                    alert('Failed to execute workflow: ' + error.message);
+                } finally {
+                    setExecuting(null);
+                }
+            };
+
+            if (loading) return <Loading />;
+
+            return (
+                <div>
+                    <div className="card">
+                        <div className="card-header">
+                            <h3 className="card-title">Workflows</h3>
+                            <button className="btn btn-primary" onClick={handleCreateWorkflow}>
+                                <i className="fas fa-plus"></i> Create Workflow
+                            </button>
+                        </div>
+                        <div className="card-content">
+                            {workflows.length === 0 ? (
+                                <div style={{textAlign: 'center', padding: '40px', color: '#64748b'}}>
+                                    <i className="fas fa-project-diagram" style={{fontSize: '48px', marginBottom: '16px'}}></i>
+                                    <p>No workflows created yet. Create your first workflow to automate tasks!</p>
+                                </div>
+                            ) : (
+                                <div className="item-list">
+                                    {workflows.map(workflow => (
+                                        <div key={workflow.id} className="item-card">
+                                            <div className="item-info">
+                                                <h4>{workflow.name}</h4>
+                                                <p>{workflow.description}</p>
+                                                <p style={{fontSize: '12px', color: '#64748b'}}>
+                                                    {workflow.steps.length} steps | {workflow.enabled ? 'Enabled' : 'Disabled'}
+                                                </p>
+                                            </div>
+                                            <div className="item-actions">
+                                                <button 
+                                                    className="btn btn-success"
+                                                    onClick={() => handleExecuteWorkflow(workflow.name)}
+                                                    disabled={executing === workflow.name}
+                                                >
+                                                    {executing === workflow.name ? (
+                                                        <>
+                                                            <div className="spinner" style={{width: '12px', height: '12px'}}></div>
+                                                            Executing...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <i className="fas fa-play"></i> Execute
+                                                        </>
+                                                    )}
+                                                </button>
+                                                <button className="btn btn-secondary">
+                                                    <i className="fas fa-edit"></i> Edit
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {showModal && (
+                        <WorkflowModal
+                            workflow={editingWorkflow}
+                            agents={agents}
+                            tools={tools}
+                            onClose={() => setShowModal(false)}
+                            onSave={loadData}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        // Workflow Modal Component
+        const WorkflowModal = ({ workflow, agents, tools, onClose, onSave }) => {
+            const [formData, setFormData] = useState({
+                name: workflow?.name || '',
+                description: workflow?.description || '',
+                steps: workflow?.steps || [],
+                enabled: workflow?.enabled !== false
+            });
+            const [saving, setSaving] = useState(false);
+
+            const addStep = (type) => {
+                const newStep = {
+                    id: Date.now(),
+                    type,
+                    name: '',
+                    task: type === 'agent' ? '' : undefined,
+                    parameters: type === 'tool' ? {} : undefined,
+                    context_key: ''
+                };
+                setFormData(prev => ({
+                    ...prev,
+                    steps: [...prev.steps, newStep]
+                }));
+            };
+
+            const updateStep = (index, updates) => {
+                setFormData(prev => ({
+                    ...prev,
+                    steps: prev.steps.map((step, i) => 
+                        i === index ? { ...step, ...updates } : step
+                    )
+                }));
+            };
+
+            const removeStep = (index) => {
+                setFormData(prev => ({
+                    ...prev,
+                    steps: prev.steps.filter((_, i) => i !== index)
+                }));
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                
+                if (!formData.name.trim()) {
+                    alert('Workflow name is required');
+                    return;
+                }
+
+                if (formData.steps.length === 0) {
+                    alert('At least one step is required');
+                    return;
+                }
+
+                try {
+                    setSaving(true);
+                    // Remove the temporary id field from steps
+                    const workflowData = {
+                        ...formData,
+                        steps: formData.steps.map(({ id, ...step }) => step)
+                    };
+                    await api.createWorkflow(workflowData);
+                    await onSave();
+                    onClose();
+                } catch (error) {
+                    alert('Failed to save workflow: ' + error.message);
+                } finally {
+                    setSaving(false);
+                }
+            };
+
+            return (
+                <div className="modal-overlay" onClick={onClose}>
+                    <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth: '800px'}}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">
+                                {workflow ? 'Edit Workflow' : 'Create Workflow'}
+                            </h3>
+                            <button className="modal-close" onClick={onClose}>
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit}>
+                            <div className="modal-content">
+                                <div className="form-group">
+                                    <label className="form-label">Name</label>
+                                    <input
+                                        className="form-input"
+                                        type="text"
+                                        value={formData.name}
+                                        onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                                        placeholder="Enter workflow name"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Description</label>
+                                    <textarea
+                                        className="form-textarea"
+                                        value={formData.description}
+                                        onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                                        placeholder="Describe what this workflow does"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Steps</label>
+                                    <div style={{marginBottom: '16px'}}>
+                                        <button type="button" className="btn btn-secondary" onClick={() => addStep('agent')} style={{marginRight: '8px'}}>
+                                            <i className="fas fa-robot"></i> Add Agent Step
+                                        </button>
+                                        <button type="button" className="btn btn-secondary" onClick={() => addStep('tool')}>
+                                            <i className="fas fa-tools"></i> Add Tool Step
+                                        </button>
+                                    </div>
+
+                                    {formData.steps.map((step, index) => (
+                                        <div key={step.id} style={{
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: '8px',
+                                            padding: '16px',
+                                            marginBottom: '12px',
+                                            background: '#f8fafc'
+                                        }}>
+                                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
+                                                <h4>Step {index + 1}: {step.type === 'agent' ? 'Agent' : 'Tool'}</h4>
+                                                <button 
+                                                    type="button" 
+                                                    className="btn btn-danger"
+                                                    onClick={() => removeStep(index)}
+                                                    style={{padding: '4px 8px', fontSize: '12px'}}
+                                                >
+                                                    <i className="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+
+                                            <div className="grid grid-2">
+                                                <div className="form-group">
+                                                    <label className="form-label">
+                                                        {step.type === 'agent' ? 'Agent' : 'Tool'}
+                                                    </label>
+                                                    <select
+                                                        className="form-select"
+                                                        value={step.name}
+                                                        onChange={e => updateStep(index, { name: e.target.value })}
+                                                        required
+                                                    >
+                                                        <option value="">Select {step.type}</option>
+                                                        {(step.type === 'agent' ? agents : tools).map(item => (
+                                                            <option key={item.name} value={item.name}>
+                                                                {item.name}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                <div className="form-group">
+                                                    <label className="form-label">Context Key</label>
+                                                    <input
+                                                        className="form-input"
+                                                        type="text"
+                                                        value={step.context_key}
+                                                        onChange={e => updateStep(index, { context_key: e.target.value })}
+                                                        placeholder="e.g., website_status"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {step.type === 'agent' && (
+                                                <div className="form-group">
+                                                    <label className="form-label">Task</label>
+                                                    <textarea
+                                                        className="form-textarea"
+                                                        value={step.task || ''}
+                                                        onChange={e => updateStep(index, { task: e.target.value })}
+                                                        placeholder="Use {{variable}} syntax to reference previous step results"
+                                                        style={{minHeight: '80px'}}
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {step.type === 'tool' && (
+                                                <div className="form-group">
+                                                    <label className="form-label">Parameters (JSON)</label>
+                                                    <textarea
+                                                        className="form-textarea"
+                                                        value={JSON.stringify(step.parameters || {}, null, 2)}
+                                                        onChange={e => {
+                                                            try {
+                                                                const params = JSON.parse(e.target.value);
+                                                                updateStep(index, { parameters: params });
+                                                            } catch (error) {
+                                                                // Invalid JSON, but update anyway for editing
+                                                                updateStep(index, { parameters: e.target.value });
+                                                            }
+                                                        }}
+                                                        placeholder='{"url": "{{target_url}}", "timeout": 10}'
+                                                        style={{minHeight: '80px', fontFamily: 'monospace'}}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+
+                                    {formData.steps.length === 0 && (
+                                        <div style={{
+                                            textAlign: 'center',
+                                            padding: '40px',
+                                            color: '#64748b',
+                                            border: '2px dashed #e2e8f0',
+                                            borderRadius: '8px'
+                                        }}>
+                                            Add steps to build your workflow
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="form-group">
+                                    <label style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.enabled}
+                                            onChange={e => setFormData(prev => ({ ...prev, enabled: e.target.checked }))}
+                                        />
+                                        <span>Enabled</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={onClose}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={saving}>
+                                    {saving ? (
+                                        <>
+                                            <div className="spinner" style={{width: '12px', height: '12px'}}></div>
+                                            Saving...
+                                        </>
+                                    ) : (
+                                        workflow ? 'Update Workflow' : 'Create Workflow'
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        // Tools Component
+        const Tools = () => {
+            const [tools, setTools] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [executing, setExecuting] = useState(null);
+
+            useEffect(() => {
+                loadTools();
+            }, []);
+
+            const loadTools = async () => {
+                try {
+                    setLoading(true);
+                    const toolsData = await api.getTools();
+                    setTools(toolsData);
+                } catch (error) {
+                    console.error('Failed to load tools:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleExecuteTool = async (tool) => {
+                const parametersStr = prompt(
+                    `Enter parameters for ${tool.name} (JSON format):\n\nExample: ${JSON.stringify(getExampleParameters(tool), null, 2)}`
+                );
+                
+                if (!parametersStr) return;
+
+                try {
+                    const parameters = JSON.parse(parametersStr);
+                    setExecuting(tool.name);
+                    const result = await api.executeTool(tool.name, parameters);
+                    alert(`Tool executed successfully!\n\nResult: ${JSON.stringify(result, null, 2)}`);
+                } catch (error) {
+                    if (error instanceof SyntaxError) {
+                        alert('Invalid JSON format in parameters');
+                    } else {
+                        alert('Failed to execute tool: ' + error.message);
+                    }
+                } finally {
+                    setExecuting(null);
+                }
+            };
+
+            const getExampleParameters = (tool) => {
+                switch (tool.name) {
+                    case 'website_monitor':
+                        return { url: 'https://google.com', expected_status: 200, timeout: 10 };
+                    case 'email_sender':
+                        return { to: 'user@example.com', subject: 'Test', body: 'Hello World' };
+                    case 'http_client':
+                        return { url: 'https://api.example.com', method: 'GET' };
+                    default:
+                        return {};
+                }
+            };
+
+            if (loading) return <Loading />;
+
+            return (
+                <div>
+                    <div className="card">
+                        <div className="card-header">
+                            <h3 className="card-title">Available Tools</h3>
+                        </div>
+                        <div className="card-content">
+                            <div className="grid grid-2">
+                                {tools.map(tool => (
+                                    <div key={tool.id} className="card">
+                                        <div className="card-header">
+                                            <h4 className="card-title">{tool.name}</h4>
+                                            <span className={`status ${tool.enabled ? 'status-online' : 'status-offline'}`}>
+                                                {tool.enabled ? 'Enabled' : 'Disabled'}
+                                            </span>
+                                        </div>
+                                        <div className="card-content">
+                                            <p style={{marginBottom: '16px', color: '#64748b'}}>{tool.description}</p>
+                                            
+                                            <div style={{marginBottom: '16px'}}>
+                                                <strong>Parameters:</strong>
+                                                <pre style={{
+                                                    background: '#f1f5f9',
+                                                    padding: '8px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '12px',
+                                                    marginTop: '8px',
+                                                    overflow: 'auto'
+                                                }}>
+                                                    {JSON.stringify(tool.parameters_schema, null, 2)}
+                                                </pre>
+                                            </div>
+
+                                            <button
+                                                className="btn btn-primary"
+                                                onClick={() => handleExecuteTool(tool)}
+                                                disabled={!tool.enabled || executing === tool.name}
+                                            >
+                                                {executing === tool.name ? (
+                                                    <>
+                                                        <div className="spinner" style={{width: '12px', height: '12px'}}></div>
+                                                        Executing...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <i className="fas fa-play"></i> Test Tool
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Main App Component
+        const App = () => {
+            const [currentPage, setCurrentPage] = useState('dashboard');
+            const [sidebarOpen, setSidebarOpen] = useState(false);
+
+            const pages = {
+                dashboard: { title: 'Dashboard', component: Dashboard },
+                agents: { title: 'AI Agents', component: AgentManagement },
+                workflows: { title: 'Workflows', component: WorkflowBuilder },
+                tools: { title: 'Tools', component: Tools }
+            };
+
+            const CurrentComponent = pages[currentPage].component;
+
+            return (
+                <div className="app">
+                    <div className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+                        <div className="sidebar-header">
+                            <div className="logo">Agentic AI</div>
+                        </div>
+                        
+                        <nav className="nav-menu">
+                            <button
+                                className={`nav-item ${currentPage === 'dashboard' ? 'active' : ''}`}
+                                onClick={() => setCurrentPage('dashboard')}
+                            >
+                                <i className="fas fa-chart-line"></i>
+                                Dashboard
+                            </button>
+                            
+                            <button
+                                className={`nav-item ${currentPage === 'agents' ? 'active' : ''}`}
+                                onClick={() => setCurrentPage('agents')}
+                            >
+                                <i className="fas fa-robot"></i>
+                                AI Agents
+                            </button>
+                            
+                            <button
+                                className={`nav-item ${currentPage === 'workflows' ? 'active' : ''}`}
+                                onClick={() => setCurrentPage('workflows')}
+                            >
+                                <i className="fas fa-project-diagram"></i>
+                                Workflows
+                            </button>
+                            
+                            <button
+                                className={`nav-item ${currentPage === 'tools' ? 'active' : ''}`}
+                                onClick={() => setCurrentPage('tools')}
+                            >
+                                <i className="fas fa-tools"></i>
+                                Tools
+                            </button>
+                        </nav>
+                    </div>
+
+                    <div className="main-content">
+                        <header className="header">
+                            <div style={{display: 'flex', alignItems: 'center'}}>
+                                <button 
+                                    className="btn btn-secondary"
+                                    onClick={() => setSidebarOpen(!sidebarOpen)}
+                                    style={{marginRight: '16px', display: 'none'}}
+                                >
+                                    <i className="fas fa-bars"></i>
+                                </button>
+                                <h1 className="page-title">{pages[currentPage].title}</h1>
+                            </div>
+                            
+                            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                                <a 
+                                    href="http://localhost:8000/docs" 
+                                    target="_blank" 
+                                    className="btn btn-secondary"
+                                    title="Open API Documentation"
+                                >
+                                    <i className="fas fa-book"></i> API Docs
+                                </a>
+                            </div>
+                        </header>
+
+                        <main className="content">
+                            <CurrentComponent />
+                        </main>
+                    </div>
+                </div>
+            );
+        };
+
+        // Render the app
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
