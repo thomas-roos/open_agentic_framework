@@ -1,10 +1,10 @@
-# DigitalOcean Production Deployment Guide
+# Production Deployment Guide
 
-This guide provides detailed instructions for deploying the Agentic AI Framework to DigitalOcean for production use with **multi-provider LLM support** and advanced monitoring.
+This guide provides detailed instructions for deploying the Agentic AI Framework to Cloud Provider for production use with **multi-provider LLM support** and advanced monitoring.
 
 ## Prerequisites
 
-- DigitalOcean account
+- Cloud Provider account
 - SSH key uploaded to DigitalOcean
 - Basic knowledge of Linux/Docker
 - Domain name (optional, for SSL)
@@ -14,12 +14,12 @@ This guide provides detailed instructions for deploying the Agentic AI Framework
 
 ### Recommended Droplet Specifications
 
-| Configuration | Droplet Size | Monthly Cost | RAM | CPU | Storage | Use Case |
+| Configuration | Droplet Size | RAM | CPU | Storage | Use Case |
 |---------------|--------------|--------------|-----|-----|---------|----------|
-| **Development** | s-1vcpu-2gb | ~$12 | 2GB | 1 vCPU | 25GB SSD | Testing, Ollama only |
-| **Production** | s-2vcpu-4gb | ~$24 | 4GB | 2 vCPU | 25GB SSD | **Recommended** |
-| **High Performance** | s-4vcpu-8gb | ~$48 | 8GB | 4 vCPU | 25GB SSD | Multi-provider, heavy workloads |
-| **Enterprise** | s-8vcpu-16gb | ~$96 | 16GB | 8 vCPU | 50GB SSD | Large scale, multiple models |
+| **Development** | s-1vcpu-2gb | 2GB | 1 vCPU | 25GB SSD | Testing, Ollama only |
+| **Production** | s-2vcpu-4gb | 4GB | 2 vCPU | 25GB SSD | **Recommended** |
+| **High Performance** | s-4vcpu-8gb | 8GB | 4 vCPU | 25GB SSD | Multi-provider, heavy workloads |
+| **Enterprise** | s-8vcpu-16gb | 16GB | 8 vCPU | 50GB SSD | Large scale, multiple models |
 
 ### Model Recommendations by Droplet Size
 
@@ -32,17 +32,10 @@ This guide provides detailed instructions for deploying the Agentic AI Framework
 
 ## Deployment Steps
 
-### Step 1: Create DigitalOcean Droplet
+### Step 1: Create a Linux Host
 
-1. **Log into DigitalOcean Dashboard**
-   - Go to https://cloud.digitalocean.com/
-
-2. **Create New Droplet**
-   - Click "Create" → "Droplets"
+2. **Create New Instance**
    - **Image**: Ubuntu 22.04 LTS
-   - **Plan**: Regular Intel (Shared CPU)
-   - **Size**: s-2vcpu-4gb ($24/month) - **Recommended**
-   - **Datacenter**: Choose closest to your users
    - **Authentication**: SSH keys (recommended) or Password
    - **Hostname**: `agentic-ai-prod` (or your preference)
 
