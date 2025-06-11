@@ -1,22 +1,20 @@
 """
-config.py - Enhanced Configuration with Model Warmup Support
+config.py - Enhanced Configuration with Multi-Provider Support
 
-Configuration management for the Agentic AI Framework with proper syntax.
+Configuration management for the Agentic AI Framework with multi-provider LLM support.
 """
 
 import os
 from typing import Dict, Any
 
 class Config:
-    """Enhanced configuration with model warmup support"""
+    """Enhanced configuration with multi-provider LLM support"""
     
     def __init__(self):
         # Core API Configuration
-        self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
-        self.default_model = os.getenv("DEFAULT_MODEL", "granite3.2:2b")
-        self.database_path = os.getenv("DATABASE_PATH", "data/agentic_ai.db")
         self.api_host = os.getenv("API_HOST", "0.0.0.0")
         self.api_port = int(os.getenv("API_PORT", "8000"))
+        self.database_path = os.getenv("DATABASE_PATH", "data/agentic_ai.db")
         
         # Agent Configuration
         self.max_agent_iterations = int(os.getenv("MAX_AGENT_ITERATIONS", "10"))
@@ -39,19 +37,101 @@ class Config:
         self.background_maintenance = os.getenv("BACKGROUND_MAINTENANCE", "true").lower() == "true"
         self.log_warmup_details = os.getenv("LOG_WARMUP_DETAILS", "true").lower() == "true"
         
+        # LLM Provider Configuration
+        self.llm_config = self._build_llm_config()
+        
         # Logging Configuration
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
         self.log_format = os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         
+        # Backward compatibility properties
+        self.ollama_url = self.llm_config["providers"]["ollama"]["url"]
+        self.default_model = self.llm_config["default_model"]
+    
+    def _build_llm_config(self) -> Dict[str, Any]:
+        """Build LLM provider configuration from environment variables"""
+        
+        # Default provider configuration
+        default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "ollama")
+        default_model = os.getenv("DEFAULT_MODEL", "granite3.2:2b")
+        fallback_enabled = os.getenv("LLM_FALLBACK_ENABLED", "true").lower() == "true"
+        
+        # Provider configurations
+        providers = {}
+        
+        # Ollama Provider Configuration
+        ollama_enabled = os.getenv("OLLAMA_ENABLED", "true").lower() == "true"
+        if ollama_enabled:
+            providers["ollama"] = {
+                "enabled": True,
+                "url": os.getenv("OLLAMA_URL", "http://localhost:11434"),
+                "timeout": int(os.getenv("OLLAMA_TIMEOUT", "300")),
+                "default_model": os.getenv("OLLAMA_DEFAULT_MODEL", "granite3.2:2b")
+            }
+        
+        # OpenAI Provider Configuration
+        openai_enabled = os.getenv("OPENAI_ENABLED", "false").lower() == "true"
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        
+        if openai_enabled and openai_api_key:
+            providers["openai"] = {
+                "enabled": True,
+                "api_key": openai_api_key,
+                "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+                "organization": os.getenv("OPENAI_ORGANIZATION"),
+                "timeout": int(os.getenv("OPENAI_TIMEOUT", "300")),
+                "default_model": os.getenv("OPENAI_DEFAULT_MODEL", "gpt-3.5-turbo")
+            }
+        
+        # OpenRouter Provider Configuration (for future implementation)
+        openrouter_enabled = os.getenv("OPENROUTER_ENABLED", "false").lower() == "true"
+        openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+        
+        if openrouter_enabled and openrouter_api_key:
+            providers["openrouter"] = {
+                "enabled": True,
+                "api_key": openrouter_api_key,
+                "base_url": os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+                "timeout": int(os.getenv("OPENROUTER_TIMEOUT", "300")),
+                "default_model": os.getenv("OPENROUTER_DEFAULT_MODEL", "openai/gpt-3.5-turbo")
+            }
+        
+        # Fallback order
+        fallback_order = os.getenv("LLM_FALLBACK_ORDER", "ollama,openai,openrouter").split(",")
+        fallback_order = [p.strip() for p in fallback_order if p.strip()]
+        
+        return {
+            "default_provider": default_provider,
+            "default_model": default_model,
+            "fallback_enabled": fallback_enabled,
+            "fallback_order": fallback_order,
+            "providers": providers
+        }
+    
+    def get_provider_config(self, provider_name: str) -> Dict[str, Any]:
+        """Get configuration for a specific provider"""
+        return self.llm_config.get("providers", {}).get(provider_name, {})
+    
+    def is_provider_enabled(self, provider_name: str) -> bool:
+        """Check if a provider is enabled"""
+        provider_config = self.get_provider_config(provider_name)
+        return provider_config.get("enabled", False)
+    
+    def get_enabled_providers(self) -> list[str]:
+        """Get list of enabled provider names"""
+        enabled = []
+        for provider_name, config in self.llm_config.get("providers", {}).items():
+            if config.get("enabled", False):
+                enabled.append(provider_name)
+        return enabled
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary"""
         return {
             # Core API settings
-            "ollama_url": self.ollama_url,
-            "default_model": self.default_model,
-            "database_path": self.database_path,
             "api_host": self.api_host,
             "api_port": self.api_port,
+            "database_path": self.database_path,
             
             # Agent settings
             "max_agent_iterations": self.max_agent_iterations,
@@ -74,6 +154,13 @@ class Config:
             "background_maintenance": self.background_maintenance,
             "log_warmup_details": self.log_warmup_details,
             
+            # LLM provider settings
+            "llm_config": self.llm_config,
+            
+            # Backward compatibility
+            "ollama_url": self.ollama_url,
+            "default_model": self.default_model,
+            
             # Logging settings
             "log_level": self.log_level,
             "log_format": self.log_format
@@ -84,6 +171,13 @@ class Config:
         for key, value in updates.items():
             if hasattr(self, key):
                 setattr(self, key, value)
+            elif key == "llm_config":
+                # Special handling for LLM config updates
+                if isinstance(value, dict):
+                    self.llm_config.update(value)
+                    # Update backward compatibility properties
+                    self.ollama_url = self.llm_config.get("providers", {}).get("ollama", {}).get("url", self.ollama_url)
+                    self.default_model = self.llm_config.get("default_model", self.default_model)
             else:
                 raise ValueError(f"Unknown configuration key: {key}")
     
@@ -113,14 +207,3 @@ class Config:
         
         # Validate log level
         valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-        if self.log_level.upper() not in valid_log_levels:
-            errors.append(f"Invalid log level: {self.log_level}. Must be one of {valid_log_levels}")
-        
-        if errors:
-            raise ValueError("Configuration validation failed:\n" + "\n".join(errors))
-    
-    def __str__(self) -> str:
-        """String representation of config (safe for logging)"""
-        safe_config = self.to_dict().copy()
-        # Don't expose sensitive information in string representation
-        return f"Config(api_port={self.api_port}, default_model={self.default_model}, warmup_enabled={self.warmup_enabled})"

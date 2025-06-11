@@ -1,5 +1,8 @@
 """
-main.py - FastAPI Application Entry Point (Enhanced with Fixed Model Installation)
+main.py - FastAPI Application Entry Point (Enhanced with Multi-Provider LLM Support)
+
+Updated to use the new LLMProviderManager instead of OllamaClient.
+Maintains backward compatibility while adding multi-provider support.
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -9,16 +12,16 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import List
-
+from typing import List, Dict, Any, Optional
 from config import Config
 from models import *
-from managers.ollama_client import OllamaClient
+from managers.llm_provider_manager import LLMProviderManager
 from managers.memory_manager import MemoryManager
 from managers.tool_manager import ToolManager
 from managers.agent_manager import AgentManager
 from managers.workflow_manager import WorkflowManager
 from managers.model_warmup_manager import ModelWarmupManager, ModelWarmupStatus
+from pydantic import BaseModel
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,8 +30,8 @@ logger = logging.getLogger(__name__)
 # Create FastAPI app
 app = FastAPI(
     title="Agentic AI Framework",
-    description="A robust framework for managing AI agents and workflows with enhanced memory management",
-    version="1.1.0"
+    description="A robust framework for managing AI agents and workflows with multi-provider LLM support",
+    version="1.2.0"
 )
 
 # Add CORS middleware
@@ -44,13 +47,12 @@ app.add_middleware(
 config = Config()
 
 # Initialize managers
-ollama_client = OllamaClient(config.ollama_url, config.default_model)
+llm_manager = LLMProviderManager(config.llm_config)
 memory_manager = MemoryManager(config.database_path)
 tool_manager = ToolManager(memory_manager, config.tools_directory)
-agent_manager = AgentManager(ollama_client, memory_manager, tool_manager, config)
+agent_manager = AgentManager(llm_manager, memory_manager, tool_manager, config)
 workflow_manager = WorkflowManager(agent_manager, tool_manager, memory_manager)
-warmup_manager = ModelWarmupManager(ollama_client, memory_manager, config)
-
+warmup_manager = ModelWarmupManager(llm_manager, memory_manager, config)
 
 # Enhanced Background scheduler with memory cleanup
 class BackgroundScheduler:
@@ -159,6 +161,9 @@ async def startup_event():
             logger.info("Clearing all agent memory on startup...")
             memory_manager.clear_all_agent_memory()
         
+        # Initialize LLM providers
+        await llm_manager.initialize()
+        
         # Load and register tools
         tool_manager.discover_and_register_tools()
         
@@ -170,7 +175,7 @@ async def startup_event():
         # Start model warmup manager
         await warmup_manager.start()
         
-        logger.info("Agentic AI Framework started successfully with model warmup")
+        logger.info("Agentic AI Framework started successfully with multi-provider support")
     except Exception as e:
         logger.error(f"Startup error: {e}")
         raise
@@ -179,7 +184,6 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown"""
     background_scheduler.stop()
-    logger.info("Agentic AI Framework shutdown complete")
     await warmup_manager.stop()
     logger.info("Agentic AI Framework shutdown complete")
 
@@ -189,21 +193,24 @@ async def root():
     """Root endpoint with basic information"""
     return {
         "message": "Agentic AI Framework",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "docs": "/docs",
         "health": "/health",
+        "providers": "/providers",
         "models": "/models",
         "memory_stats": "/memory/stats"
     }
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint with warmup info"""
+    """Health check endpoint with provider and warmup info"""
+    provider_health = await llm_manager.health_check()
     warmup_stats = warmup_manager.get_warmup_stats()
+    
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow(),
-        "ollama_status": await ollama_client.health_check(),
+        "providers": provider_health,
         "memory_entries": memory_manager.get_memory_stats()["total_memory_entries"],
         "warmup_stats": {
             "active_models": warmup_stats["active_models"],
@@ -212,112 +219,360 @@ async def health_check():
         }
     }
 
-# FIXED: Models endpoints with proper error handling
-@app.get("/models", response_model=List[str])
-async def list_ollama_models():
-    """List all available models in Ollama"""
+# Provider Management Endpoints
+@app.get("/providers")
+async def list_providers():
+    """List all available LLM providers and their status"""
+    provider_status = llm_manager.get_provider_status()
+    
+    return {
+        "providers": {
+            name: {
+                "name": status.name,
+                "is_healthy": status.is_healthy,
+                "is_initialized": status.is_initialized,
+                "model_count": status.model_count,
+                "last_check": status.last_check.isoformat(),
+                "error_message": status.error_message
+            }
+            for name, status in provider_status.items()
+        },
+        "default_provider": config.llm_config.get("default_provider"),
+        "fallback_enabled": config.llm_config.get("fallback_enabled"),
+        "fallback_order": config.llm_config.get("fallback_order", [])
+    }
+
+@app.get("/providers/{provider_name}")
+async def get_provider_info(provider_name: str):
+    """Get detailed information about a specific provider"""
+    provider = llm_manager.get_provider(provider_name)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Provider {provider_name} not found")
+    
+    models = await llm_manager.list_models(provider_name)
+    health_status = await llm_manager.health_check()
+    
+    return {
+        "name": provider_name,
+        "is_healthy": health_status.get(provider_name, False),
+        "is_initialized": provider.is_initialized,
+        "config": provider.get_config(),
+        "models": [
+            {
+                "name": model.name,
+                "description": model.description,
+                "context_length": model.context_length,
+                "supports_streaming": model.supports_streaming,
+                "supports_tools": model.supports_tools,
+                "model_type": model.model_type
+            }
+            for model in models
+        ],
+        "model_count": len(models)
+    }
+
+@app.post("/providers/{provider_name}/health-check")
+async def check_provider_health(provider_name: str):
+    """Perform a health check on a specific provider"""
+    provider = llm_manager.get_provider(provider_name)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Provider {provider_name} not found")
+    
+    is_healthy = await provider.health_check()
+    
+    return {
+        "provider": provider_name,
+        "is_healthy": is_healthy,
+        "timestamp": datetime.utcnow()
+    }
+
+@app.post("/providers/reload-models")
+async def reload_provider_models():
+    """Reload models from all providers"""
     try:
-        models = await ollama_client.list_models()
-        return models
+        await llm_manager.reload_models()
+        return {
+            "message": "Models reloaded successfully",
+            "timestamp": datetime.utcnow()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reload models: {str(e)}")
+
+class ProviderConfigUpdate(BaseModel):
+    """Model for updating provider configuration"""
+    enabled: Optional[bool] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    default_model: Optional[str] = None
+    timeout: Optional[int] = None
+
+@app.post("/providers/{provider_name}/configure")
+async def configure_provider(provider_name: str, config_update: ProviderConfigUpdate):
+    """Dynamically configure a provider without restart"""
+    try:
+        # Validate provider exists
+        valid_providers = ["openai", "openrouter", "ollama"]
+        if provider_name not in valid_providers:
+            raise HTTPException(status_code=400, detail=f"Invalid provider. Must be one of: {valid_providers}")
+        
+        # Get current config
+        current_config = config.llm_config.get("providers", {}).get(provider_name, {})
+        
+        # Update with new values
+        update_dict = config_update.dict(exclude_unset=True)
+        current_config.update(update_dict)
+        
+        # Apply to config
+        if "providers" not in config.llm_config:
+            config.llm_config["providers"] = {}
+        config.llm_config["providers"][provider_name] = current_config
+        
+        # If enabling a provider, reinitialize it
+        if update_dict.get("enabled", False):
+            await _reinitialize_provider(provider_name, current_config)
+        
+        # If disabling, remove from active providers
+        elif update_dict.get("enabled") is False:
+            if provider_name in llm_manager.providers:
+                del llm_manager.providers[provider_name]
+                logger.info(f"Disabled provider: {provider_name}")
+        
+        return {
+            "message": f"Provider {provider_name} configured successfully",
+            "provider": provider_name,
+            "config": current_config,
+            "restart_required": False
+        }
+        
+    except Exception as e:
+        logger.error(f"Error configuring provider {provider_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def _reinitialize_provider(provider_name: str, provider_config: Dict[str, Any]):
+    """Reinitialize a provider with new configuration"""
+    try:
+        # Create new provider instance
+        provider = llm_manager._create_provider(provider_name, provider_config)
+        if not provider:
+            raise ValueError(f"Failed to create provider instance for {provider_name}")
+        
+        # Initialize the provider
+        if await provider.initialize():
+            # Add to active providers
+            llm_manager.providers[provider_name] = provider
+            
+            # Load models for this provider
+            await llm_manager._load_provider_models(provider_name)
+            
+            logger.info(f"Successfully reinitialized provider: {provider_name}")
+            return True
+        else:
+            logger.error(f"Failed to initialize provider: {provider_name}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error reinitializing provider {provider_name}: {e}")
+        return False
+
+@app.get("/providers/{provider_name}/config")
+async def get_provider_config(provider_name: str):
+    """Get current provider configuration (without sensitive data)"""
+    try:
+        provider_config = config.llm_config.get("providers", {}).get(provider_name, {})
+        
+        # Remove sensitive information from response
+        safe_config = provider_config.copy()
+        if "api_key" in safe_config:
+            safe_config["api_key"] = "***" + safe_config["api_key"][-4:] if len(safe_config["api_key"]) > 4 else "***"
+        
+        return {
+            "provider": provider_name,
+            "config": safe_config,
+            "is_active": provider_name in llm_manager.providers,
+            "is_healthy": await _check_provider_health_safe(provider_name)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def _check_provider_health_safe(provider_name: str) -> bool:
+    """Safely check provider health without throwing errors"""
+    try:
+        if provider_name in llm_manager.providers:
+            return await llm_manager.providers[provider_name].health_check()
+        return False
+    except:
+        return False
+
+@app.post("/providers/reload")
+async def reload_all_providers():
+    """Reload all providers with current configuration"""
+    try:
+        # Reinitialize the LLM manager with current config
+        await llm_manager.initialize()
+        
+        return {
+            "message": "All providers reloaded successfully",
+            "active_providers": list(llm_manager.providers.keys()),
+            "timestamp": datetime.utcnow()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error reloading providers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Enhanced Models endpoints with multi-provider support
+@app.get("/models", response_model=List[str])
+async def list_models(provider: str = None):
+    """List all available models from all providers or a specific provider"""
+    try:
+        models = await llm_manager.list_models(provider)
+        return [model.name for model in models]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch models: {str(e)}")
 
+@app.get("/models/detailed")
+async def list_models_detailed(provider: str = None):
+    """List all available models with detailed information"""
+    try:
+        models = await llm_manager.list_models(provider)
+        return {
+            "models": [
+                {
+                    "name": model.name,
+                    "provider": model.provider,
+                    "description": model.description,
+                    "context_length": model.context_length,
+                    "max_tokens": model.max_tokens,
+                    "cost_per_1k_tokens": model.cost_per_1k_tokens,
+                    "supports_streaming": model.supports_streaming,
+                    "supports_tools": model.supports_tools,
+                    "model_type": model.model_type
+                }
+                for model in models
+            ],
+            "total_count": len(models),
+            "provider_filter": provider
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch detailed models: {str(e)}")
+
 @app.get("/models/status")
 async def get_models_status():
-    """Get detailed status of available models"""
+    """Get detailed status of available models across all providers"""
     try:
-        models = await ollama_client.list_models()
-        health = await ollama_client.health_check()
+        provider_health = await llm_manager.health_check()
+        all_models = await llm_manager.list_models()
+        
+        models_by_provider = {}
+        for model in all_models:
+            if model.provider not in models_by_provider:
+                models_by_provider[model.provider] = []
+            models_by_provider[model.provider].append(model.name)
+        
         return {
-            "ollama_healthy": health,
-            "total_models": len(models),
-            "available_models": models,
-            "default_model": config.default_model,
-            "recommended_models": [
-                "deepseek-r1:1.5b",
-                "granite3.2:2b", 
-                "tinyllama:1.1b",
-                "deepseek-coder:1.3b",
-                "smollm:135m"
-            ]
+            "provider_health": provider_health,
+            "total_models": len(all_models),
+            "models_by_provider": models_by_provider,
+            "default_provider": config.llm_config.get("default_provider"),
+            "default_model": config.llm_config.get("default_model"),
+            "enabled_providers": config.get_enabled_providers()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get models status: {str(e)}")
 
+@app.get("/models/{model_name}/info")
+async def get_model_info(model_name: str):
+    """Get detailed information about a specific model"""
+    try:
+        model_info = llm_manager.get_model_info(model_name)
+        if not model_info:
+            raise HTTPException(status_code=404, detail=f"Model {model_name} not found")
+        
+        return {
+            "name": model_info.name,
+            "provider": model_info.provider,
+            "description": model_info.description,
+            "context_length": model_info.context_length,
+            "max_tokens": model_info.max_tokens,
+            "cost_per_1k_tokens": model_info.cost_per_1k_tokens,
+            "supports_streaming": model_info.supports_streaming,
+            "supports_tools": model_info.supports_tools,
+            "model_type": model_info.model_type
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting model info: {str(e)}")
+
+@app.post("/models/test/{model_name}")
+async def test_model(model_name: str):
+    """Test if a model is working correctly"""
+    try:
+        test_prompt = "Hello, please respond with 'Model test successful' to confirm you are working."
+        
+        response = await llm_manager.generate_response(
+            prompt=test_prompt,
+            model=model_name
+        )
+        
+        return {
+            "model_name": model_name,
+            "test_prompt": test_prompt,
+            "response": response,
+            "status": "working",
+            "test_successful": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Model test error for {model_name}: {e}")
+        return {
+            "model_name": model_name,
+            "error": str(e),
+            "status": "error",
+            "test_successful": False
+        }
+
+# Ollama-specific endpoints (for backward compatibility)
 @app.post("/models/install")
 async def install_model(request: ModelInstallRequest, background_tasks: BackgroundTasks):
-    """Install a new model in Ollama with improved error handling"""
+    """Install a new model (Ollama provider only)"""
     try:
-        # Validate model name format
+        ollama_provider = llm_manager.get_provider("ollama")
+        if not ollama_provider:
+            raise HTTPException(status_code=400, detail="Ollama provider not available")
+        
         model_name = request.model_name.strip()
         if not model_name:
             raise HTTPException(status_code=400, detail="Model name cannot be empty")
         
-        # Check if model already exists
-        models = await ollama_client.list_models()
-        existing_model = None
-        for model in models:
-            if model_name in model or model.startswith(model_name.split(':')[0]):
-                existing_model = model
-                break
-        
-        if existing_model:
-            return {
-                "message": f"Model {existing_model} is already installed",
-                "model_name": existing_model,
-                "status": "already_installed"
-            }
-        
         logger.info(f"Starting installation of model: {model_name}")
         
         if request.wait_for_completion:
-            # Wait for completion (blocking) - try simple method first
-            try:
-                success = await ollama_client.pull_model_simple(model_name)
-                if not success:
-                    # Fallback to streaming method
-                    logger.info(f"Simple pull failed, trying streaming method for {model_name}")
-                    success = await ollama_client.pull_model(model_name)
+            success = await ollama_provider.pull_model(model_name)
+            
+            if success:
+                # Reload models to include the new one
+                await llm_manager.reload_models()
                 
-                if success:
-                    # Verify installation one more time
-                    updated_models = await ollama_client.list_models()
-                    installed_model = None
-                    for model in updated_models:
-                        if model_name in model or model.startswith(model_name.split(':')[0]):
-                            installed_model = model
-                            break
-                    
-                    if installed_model:
-                        return {
-                            "message": f"Model {installed_model} installed successfully",
-                            "model_name": installed_model,
-                            "status": "installed"
-                        }
-                    else:
-                        raise HTTPException(
-                            status_code=500, 
-                            detail=f"Model installation reported success but model {model_name} not found in model list"
-                        )
-                else:
-                    raise HTTPException(
-                        status_code=400, 
-                        detail=f"Failed to install model {model_name}. Check Ollama logs for details."
-                    )
-                    
-            except Exception as e:
-                logger.error(f"Model installation error for {model_name}: {e}")
+                return {
+                    "message": f"Model {model_name} installed successfully",
+                    "model_name": model_name,
+                    "status": "installed"
+                }
+            else:
                 raise HTTPException(
-                    status_code=500, 
-                    detail=f"Model installation failed: {str(e)}"
+                    status_code=400, 
+                    detail=f"Failed to install model {model_name}"
                 )
         else:
             # Start installation in background
             async def background_install():
                 try:
                     logger.info(f"Background installation started for {model_name}")
-                    success = await ollama_client.pull_model_simple(model_name)
+                    success = await ollama_provider.pull_model(model_name)
                     if success:
+                        await llm_manager.reload_models()
                         logger.info(f"Background installation completed for {model_name}")
                     else:
                         logger.error(f"Background installation failed for {model_name}")
@@ -337,133 +592,19 @@ async def install_model(request: ModelInstallRequest, background_tasks: Backgrou
         logger.error(f"Unexpected model installation error: {e}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
-@app.get("/models/status/{model_name}")
-async def get_model_status(model_name: str):
-    """Get status of a specific model"""
-    try:
-        models = await ollama_client.list_models()
-        
-        # Check if model exists (handle partial matches)
-        found_model = None
-        for model in models:
-            if model_name in model or model.startswith(model_name.split(':')[0]):
-                found_model = model
-                break
-        
-        if found_model:
-            return {
-                "model_name": model_name,
-                "found_as": found_model,
-                "status": "installed",
-                "available": True
-            }
-        else:
-            return {
-                "model_name": model_name,
-                "found_as": None,
-                "status": "not_installed",
-                "available": False,
-                "available_models": models
-            }
-            
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error checking model status: {str(e)}")
-
-@app.post("/models/test/{model_name}")
-async def test_model(model_name: str):
-    """Test if a model is working correctly"""
-    try:
-        # First check if model exists
-        models = await ollama_client.list_models()
-        found_model = None
-        
-        for model in models:
-            if model_name in model or model.startswith(model_name.split(':')[0]):
-                found_model = model
-                break
-        
-        if not found_model:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Model {model_name} not found. Available models: {models}"
-            )
-        
-        # Test the model with a simple prompt
-        test_prompt = "Hello, please respond with 'Model test successful' to confirm you are working."
-        
-        response = await ollama_client.generate_response(
-            prompt=test_prompt,
-            model=found_model
-        )
-        
-        return {
-            "model_name": found_model,
-            "test_prompt": test_prompt,
-            "response": response,
-            "status": "working",
-            "test_successful": True
-        }
-        
-    except Exception as e:
-        logger.error(f"Model test error for {model_name}: {e}")
-        return {
-            "model_name": model_name,
-            "error": str(e),
-            "status": "error",
-            "test_successful": False
-        }
-
-@app.get("/models/installation-guide")
-async def get_installation_guide():
-    """Get guide for installing models"""
-    return {
-        "recommended_models": {
-            "ultra_lightweight": {
-                "name": "smollm:135m",
-                "size": "~92MB",
-                "use_case": "Ultra-lightweight tasks, very fast responses",
-                "install_command": "curl -X POST 'http://localhost:8000/models/install' -H 'Content-Type: application/json' -d '{\"model_name\": \"smollm:135m\", \"wait_for_completion\": true}'"
-            },
-            "lightweight": {
-                "name": "tinyllama:1.1b", 
-                "size": "~637MB",
-                "use_case": "General lightweight tasks, good balance",
-                "install_command": "curl -X POST 'http://localhost:8000/models/install' -H 'Content-Type: application/json' -d '{\"model_name\": \"tinyllama:1.1b\", \"wait_for_completion\": true}'"
-            },
-            "recommended": {
-                "name": "deepseek-r1:1.5b",
-                "size": "~1.1GB", 
-                "use_case": "Reasoning and tool calling (recommended default)",
-                "install_command": "curl -X POST 'http://localhost:8000/models/install' -H 'Content-Type: application/json' -d '{\"model_name\": \"deepseek-r1:1.5b\", \"wait_for_completion\": true}'"
-            },
-            "coding": {
-                "name": "deepseek-coder:1.3b",
-                "size": "~776MB",
-                "use_case": "Code-related tasks and programming",
-                "install_command": "curl -X POST 'http://localhost:8000/models/install' -H 'Content-Type: application/json' -d '{\"model_name\": \"deepseek-coder:1.3b\", \"wait_for_completion\": true}'"
-            }
-        },
-        "installation_steps": [
-            "1. Choose a model from the recommended list above",
-            "2. Use the provided curl command or API endpoint",
-            "3. Wait for installation to complete (can take 5-15 minutes depending on model size)",
-            "4. Test the model using /models/test/{model_name}",
-            "5. Update your agent configurations to use the new model"
-        ],
-        "troubleshooting": {
-            "installation_fails": "Check Ollama is running and accessible at the configured URL",
-            "model_not_found": "Verify model name is correct and exists in Ollama registry",
-            "timeout_errors": "Large models may take time to download, consider background installation",
-            "memory_issues": "Ensure sufficient disk space and RAM for the model size"
-        }
-    }
-
 @app.delete("/models/{model_name}")
 async def delete_model(model_name: str):
-    """Delete a model from Ollama"""
+    """Delete a model (Ollama provider only)"""
     try:
-        success = await ollama_client.delete_model(model_name)
+        ollama_provider = llm_manager.get_provider("ollama")
+        if not ollama_provider:
+            raise HTTPException(status_code=400, detail="Ollama provider not available")
+        
+        success = await ollama_provider.delete_model(model_name)
         if success:
+            # Reload models to reflect the deletion
+            await llm_manager.reload_models()
+            
             return {
                 "message": f"Model {model_name} deleted successfully",
                 "model_name": model_name,
@@ -471,165 +612,9 @@ async def delete_model(model_name: str):
             }
         else:
             raise HTTPException(status_code=400, detail=f"Failed to delete model {model_name}")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Model Warmup endpoints
-@app.post("/models/warmup")
-async def warmup_models(model_names: List[str] = None, background_tasks: BackgroundTasks = None):
-    """Warm up specific models or all agent models"""
-    try:
-        if model_names:
-            # Warm up specific models
-            if len(model_names) > 5:
-                # For many models, do it in background
-                if background_tasks:
-                    background_tasks.add_task(warmup_manager.warmup_models, model_names)
-                    return {
-                        "message": f"Warming up {len(model_names)} models in background",
-                        "models": model_names,
-                        "status": "started"
-                    }
-            
-            # Warm up synchronously for small lists
-            results = await warmup_manager.warmup_models(model_names)
-            successful = [name for name, status in results.items() if status.warmup_success]
-            failed = [name for name, status in results.items() if not status.warmup_success]
-            
-            return {
-                "message": f"Warmup completed for {len(model_names)} models",
-                "successful": successful,
-                "failed": failed,
-                "results": {name: {
-                    "success": status.warmup_success,
-                    "warmup_time": status.warmup_time_seconds,
-                    "error": status.error_message
-                } for name, status in results.items()}
-            }
-        else:
-            # Warm up all agent models
-            results = await warmup_manager.warmup_agent_models()
-            successful = [name for name, status in results.items() if status.warmup_success]
-            failed = [name for name, status in results.items() if not status.warmup_success]
-            
-            return {
-                "message": f"Warmed up {len(successful)} agent models",
-                "successful": successful,
-                "failed": failed,
-                "total_models": len(results),
-                "results": {name: {
-                    "success": status.warmup_success,
-                    "warmup_time": status.warmup_time_seconds,
-                    "error": status.error_message
-                } for name, status in results.items()}
-            }
-            
-    except Exception as e:
-        logger.error(f"Model warmup error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/models/warmup/{model_name}")
-async def warmup_single_model(model_name: str, force: bool = False):
-    """Warm up a single model"""
-    try:
-        status = await warmup_manager.warmup_model(model_name, force=force)
-        
-        return {
-            "model_name": model_name,
-            "success": status.warmup_success,
-            "warmup_time_seconds": status.warmup_time_seconds,
-            "warmed_at": status.warmed_at.isoformat(),
-            "is_active": status.is_active,
-            "error": status.error_message
-        }
-        
-    except Exception as e:
-        logger.error(f"Error warming model {model_name}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/models/warmup/status")
-async def get_warmup_status():
-    """Get warmup status for all models"""
-    try:
-        statuses = warmup_manager.get_warmup_status()
-        stats = warmup_manager.get_warmup_stats()
-        
-        return {
-            "stats": stats,
-            "models": {
-                name: {
-                    "model_name": status.model_name,
-                    "is_active": status.is_active,
-                    "warmup_success": status.warmup_success,
-                    "warmed_at": status.warmed_at.isoformat(),
-                    "last_used": status.last_used.isoformat(),
-                    "warmup_time_seconds": status.warmup_time_seconds,
-                    "usage_count": status.usage_count,
-                    "error_message": status.error_message
-                } for name, status in statuses.items()
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Error getting warmup status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/models/warmup/status/{model_name}")
-async def get_model_warmup_status(model_name: str):
-    """Get warmup status for a specific model"""
-    try:
-        status = warmup_manager.get_warmup_status(model_name).get(model_name)
-        
-        if not status:
-            return {
-                "model_name": model_name,
-                "is_warmed": False,
-                "message": "Model not warmed"
-            }
-        
-        return {
-            "model_name": model_name,
-            "is_warmed": True,
-            "is_active": status.is_active,
-            "warmup_success": status.warmup_success,
-            "warmed_at": status.warmed_at.isoformat(),
-            "last_used": status.last_used.isoformat(),
-            "warmup_time_seconds": status.warmup_time_seconds,
-            "usage_count": status.usage_count,
-            "error_message": status.error_message
-        }
-        
-    except Exception as e:
-        logger.error(f"Error getting status for model {model_name}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/models/warmup/stats")
-async def get_warmup_stats():
-    """Get comprehensive warmup statistics"""
-    try:
-        return warmup_manager.get_warmup_stats()
-    except Exception as e:
-        logger.error(f"Error getting warmup stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.delete("/models/warmup/{model_name}")
-async def remove_model_from_warmup(model_name: str):
-    """Remove a model from the warmup cache"""
-    try:
-        if model_name in warmup_manager.warmed_models:
-            del warmup_manager.warmed_models[model_name]
-            return {
-                "message": f"Model {model_name} removed from warmup cache",
-                "model_name": model_name
-            }
-        else:
-            return {
-                "message": f"Model {model_name} was not in warmup cache",
-                "model_name": model_name
-            }
-            
-    except Exception as e:
-        logger.error(f"Error removing model {model_name} from warmup: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Configuration endpoints
@@ -647,7 +632,7 @@ async def update_config(config_update: ConfigUpdate):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Agent endpoints (existing with memory limits applied)
+# Agent endpoints (updated to use new LLM manager)
 @app.post("/agents", response_model=AgentResponse)
 async def create_agent(agent_def: AgentDefinition):
     """Create a new agent"""
@@ -724,7 +709,7 @@ async def get_agent_memory(agent_name: str, limit: int = 5):
     """Get agent's memory/conversation history (limited)"""
     return memory_manager.get_agent_memory(agent_name, limit)
 
-# NEW: Memory management endpoints
+# Memory management endpoints (unchanged)
 @app.delete("/agents/{agent_name}/memory")
 async def clear_agent_memory(agent_name: str):
     """Clear all memory for a specific agent"""
@@ -791,7 +776,7 @@ async def cleanup_all_agent_memory():
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Tool endpoints (existing, unchanged)
+# Tool endpoints (unchanged)
 @app.get("/tools", response_model=List[ToolInfo])
 async def list_tools():
     """List all tools"""
@@ -821,7 +806,7 @@ async def execute_tool(tool_name: str, request: ToolExecutionRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Workflow endpoints (existing, unchanged)
+# Workflow endpoints (unchanged)
 @app.post("/workflows", response_model=WorkflowResponse)
 async def create_workflow(workflow_def: WorkflowDefinition):
     """Create a new workflow"""
@@ -895,7 +880,7 @@ async def execute_workflow(workflow_name: str, request: WorkflowExecutionRequest
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Scheduling endpoints (existing, unchanged)
+# Scheduling endpoints (unchanged)
 @app.post("/schedule", response_model=ScheduleResponse)
 async def schedule_task(task: ScheduledTaskDefinition):
     """Schedule a task for execution"""

@@ -1,10 +1,8 @@
 """
-managers/agent_manager.py - Enhanced Agent Manager with Memory Limits
+managers/agent_manager.py - FIXED: Enhanced Agent Manager with Context Filtering
 
-Enhanced with:
-- Limited memory retrieval (last 5 entries by default)
-- Automatic memory cleanup after execution
-- Configurable memory limits per agent
+Key Fix: Only pass relevant context data to agents based on their specific needs.
+This prevents data overload while preserving all agent identity information.
 """
 
 import json
@@ -13,17 +11,19 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
+from providers.base_llm_provider import Message, GenerationConfig
+
 logger = logging.getLogger(__name__)
 
 class AgentManager:
-    """Enhanced agent execution manager with memory management"""
+    """Enhanced agent execution manager with context filtering"""
     
-    def __init__(self, ollama_client, memory_manager, tool_manager, config):
-        self.ollama_client = ollama_client
+    def __init__(self, llm_manager, memory_manager, tool_manager, config):
+        self.llm_manager = llm_manager
         self.memory_manager = memory_manager
         self.tool_manager = tool_manager
         self.config = config
-        logger.info("Initialized enhanced agent manager with memory management")
+        logger.info("Initialized enhanced agent manager with context filtering")
     
     async def execute_agent(
         self, 
@@ -31,7 +31,7 @@ class AgentManager:
         task: str, 
         context: Dict[str, Any] = None
     ) -> str:
-        """Execute agent with memory limits and automatic cleanup"""
+        """Execute agent with filtered context to prevent data overload"""
         context = context or {}
         
         # Get agent definition
@@ -44,9 +44,13 @@ class AgentManager:
         
         logger.info(f"Starting execution for agent {agent_name}: {task}")
         
+        # CRITICAL FIX: Filter context for this specific agent
+        filtered_context = self._filter_context_for_agent(agent_name, task, context)
+        logger.info(f"Filtered context for {agent_name}: {list(filtered_context.keys())}")
+        
         # Log task start
         self.memory_manager.add_memory_entry(
-            agent_name, "user", task, {"context": context}
+            agent_name, "user", task, {"context": filtered_context}
         )
         
         # Get recent conversation history (LIMITED to max entries)
@@ -54,8 +58,8 @@ class AgentManager:
         memory_entries = self.memory_manager.get_agent_memory(agent_name, limit=memory_limit)
         chat_history = self._build_chat_history(memory_entries)
         
-        # Build system prompt
-        system_prompt = self._build_simple_system_prompt(agent, task, context)
+        # Build comprehensive system prompt with FILTERED agent context
+        system_prompt = self._build_comprehensive_system_prompt(agent, task, filtered_context)
         
         iteration = 0
         max_iterations = min(self.config.max_agent_iterations, 3)
@@ -65,7 +69,7 @@ class AgentManager:
                 iteration += 1
                 logger.debug(f"Agent {agent_name} iteration {iteration}")
                 
-                # Generate response
+                # Generate response using the LLM manager
                 response = await self._generate_simple_response(
                     system_prompt, agent, task, chat_history, iteration
                 )
@@ -80,6 +84,11 @@ class AgentManager:
                 tool_calls = self._parse_tool_calls_aggressive(response)
                 
                 if not tool_calls:
+                    # If no tools are available, this is likely the final answer
+                    if not agent.get("tools"):
+                        logger.info(f"Agent {agent_name} completed without tools (no tools available)")
+                        break
+                    
                     # Try to force tool usage if iteration 1 and tools available
                     if iteration == 1 and agent.get("tools"):
                         logger.info(f"No tool calls found, re-prompting LLM with explicit instructions")
@@ -90,10 +99,8 @@ class AgentManager:
                         chat_history.append({"role": "user", "content": tool_instruction})
                         
                         # Generate new response with explicit tool instruction
-                        forced_response = await self.ollama_client.generate_response(
-                            system_prompt,
-                            model=agent.get("ollama_model", self.config.default_model),
-                            chat_history=chat_history
+                        forced_response = await self._generate_with_messages(
+                            agent, chat_history, system_prompt
                         )
                         
                         logger.info(f"LLM response to explicit instruction: {forced_response[:100]}...")
@@ -145,10 +152,8 @@ class AgentManager:
                     chat_history.append({"role": "user", "content": completion_prompt})
                     
                     # Generate final response
-                    final_response = await self.ollama_client.generate_response(
-                        system_prompt,
-                        model=agent.get("ollama_model", self.config.default_model),
-                        chat_history=chat_history
+                    final_response = await self._generate_with_messages(
+                        agent, chat_history, system_prompt
                     )
                     
                     # Log final response
@@ -186,6 +191,229 @@ class AgentManager:
                 logger.warning(f"Failed to cleanup memory after error: {cleanup_error}")
             
             raise
+    
+    def _filter_context_for_agent(
+        self, 
+        agent_name: str, 
+        task: str, 
+        full_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Filter context to only include data relevant to the specific agent"""
+        
+        # If context is small (< 5 items), pass everything but check for oversized items
+        if len(full_context) <= 5:
+            filtered = {}
+            for key, value in full_context.items():
+                if self._is_oversized_data(key, value):
+                    logger.info(f"Filtering out oversized data '{key}' for agent {agent_name}")
+                    continue
+                filtered[key] = value
+            return filtered
+        
+        # Define agent-specific context filtering rules
+        agent_context_rules = {
+            "purl_parser": {
+                "include": ["purl"],  # Only needs the original PURL
+                "exclude": ["raw_api_response", "package_analysis_*", "license_*"]
+            },
+            "license_assessor": {
+                "include": ["purl", "package_metadata", "license_data", "package_analysis_metadata", "package_analysis_licensed"],
+                "exclude": ["raw_api_response"]  # Exclude the massive raw API response
+            },
+            "security_analyzer": {
+                "include": ["purl", "package_metadata", "license_data", "vulnerability_*"],
+                "exclude": ["raw_api_response"]
+            },
+            "data_extractor": {
+                "include": ["*"],  # Data extractor might need access to everything
+                "exclude": []
+            }
+        }
+        
+        # Get rules for this agent, default to including specific data only
+        rules = agent_context_rules.get(agent_name, {
+            "include": [],
+            "exclude": ["raw_api_response", "*_raw_data"]
+        })
+        
+        filtered_context = {}
+        
+        for key, value in full_context.items():
+            should_include = False
+            
+            # Check include patterns
+            include_patterns = rules.get("include", [])
+            if "*" in include_patterns:
+                should_include = True
+            else:
+                for pattern in include_patterns:
+                    if pattern.endswith("*"):
+                        if key.startswith(pattern[:-1]):
+                            should_include = True
+                            break
+                    elif key == pattern:
+                        should_include = True
+                        break
+            
+            # Check exclude patterns (takes precedence)
+            exclude_patterns = rules.get("exclude", [])
+            for pattern in exclude_patterns:
+                if pattern.endswith("*"):
+                    if key.startswith(pattern[:-1]):
+                        should_include = False
+                        break
+                elif key == pattern:
+                    should_include = False
+                    break
+            
+            # Additional check for oversized data
+            if should_include and self._is_oversized_data(key, value):
+                logger.info(f"Excluding oversized data '{key}' for agent {agent_name}")
+                should_include = False
+            
+            if should_include:
+                filtered_context[key] = value
+            else:
+                logger.debug(f"Filtered out context '{key}' for agent {agent_name}")
+        
+        # If we filtered everything out, include just the basics
+        if not filtered_context and full_context:
+            # Include small, relevant items
+            for key, value in full_context.items():
+                if key in ["purl"] or (isinstance(value, str) and len(value) < 500):
+                    filtered_context[key] = value
+                    if len(filtered_context) >= 3:  # Limit to 3 basic items
+                        break
+        
+        logger.info(f"Context filtering for {agent_name}: {len(full_context)} -> {len(filtered_context)} items")
+        return filtered_context
+    
+    def _is_oversized_data(self, key: str, value: Any) -> bool:
+        """Check if a context item is too large and should be filtered"""
+        
+        # Size-based filtering
+        if isinstance(value, str):
+            if len(value) > 10000:  # 10KB string limit
+                return True
+        elif isinstance(value, dict):
+            json_str = json.dumps(value)
+            if len(json_str) > 20000:  # 20KB JSON limit
+                return True
+        elif isinstance(value, list) and len(value) > 100:  # Large list limit
+            return True
+        
+        # Content-based filtering - known large data patterns
+        oversized_patterns = [
+            "raw_api_response",
+            "full_raw_data",
+            "_response_content",
+            "api_data",
+            "files"  # File lists tend to be huge
+        ]
+        
+        for pattern in oversized_patterns:
+            if pattern in key.lower():
+                return True
+        
+        return False
+    
+    def _build_comprehensive_system_prompt(
+        self, 
+        agent: Dict[str, Any], 
+        task: str, 
+        context: Dict[str, Any]
+    ) -> str:
+        """Build comprehensive system prompt with FILTERED agent context"""
+        tools_list = self._get_simple_tool_list(agent["tools"])
+        
+        # Start with agent identity and role
+        prompt_parts = [
+            f"You are {agent['name']}: {agent['role']}"
+        ]
+        
+        # Add agent's goals if available
+        if agent.get("goals"):
+            prompt_parts.append(f"\nYour Goals:\n{agent['goals']}")
+        
+        # Add agent's backstory - THIS IS CRITICAL for your PURL parsing rules
+        if agent.get("backstory"):
+            prompt_parts.append(f"\nYour Background and Rules:\n{agent['backstory']}")
+        
+        # Add the current task
+        prompt_parts.append(f"\nCurrent Task: {task}")
+        
+        # Add FILTERED execution context
+        if context:
+            context_str = ""
+            context_size = 0
+            
+            for key, value in context.items():
+                if isinstance(value, (dict, list)):
+                    value_json = json.dumps(value, indent=2)
+                    # Truncate large JSON objects
+                    if len(value_json) > 2000:
+                        # Try to provide a summary instead of full data
+                        if isinstance(value, dict):
+                            summary_parts = []
+                            for k, v in value.items():
+                                if isinstance(v, str) and len(v) < 100:
+                                    summary_parts.append(f"  {k}: {v}")
+                                elif isinstance(v, (int, float, bool)):
+                                    summary_parts.append(f"  {k}: {v}")
+                                else:
+                                    summary_parts.append(f"  {k}: <{type(v).__name__}>")
+                                if len(summary_parts) >= 10:  # Limit summary items
+                                    break
+                            context_str += f"\n- {key} (summary):\n" + "\n".join(summary_parts)
+                        else:
+                            context_str += f"\n- {key}: <large {type(value).__name__} with {len(value)} items>"
+                    else:
+                        context_str += f"\n- {key}: {value_json}"
+                else:
+                    # Simple string/number values
+                    value_str = str(value)
+                    if len(value_str) > 1000:
+                        value_str = value_str[:1000] + "... [truncated]"
+                    context_str += f"\n- {key}: {value_str}"
+                
+                context_size += len(context_str)
+                # Stop if context gets too large
+                if context_size > 5000:
+                    context_str += "\n... [additional context truncated for brevity]"
+                    break
+            
+            if context_str:
+                prompt_parts.append(f"\nExecution Context:{context_str}")
+        
+        # Add tool information if tools are available
+        if agent.get("tools"):
+            prompt_parts.append(f"\nAvailable Tools: {tools_list}")
+            prompt_parts.append("""
+IMPORTANT: To use a tool, use this exact format:
+TOOL_CALL: tool_name(parameter=value)
+
+Examples:
+- TOOL_CALL: website_monitor(url=https://google.com, expected_status=200)
+- TOOL_CALL: http_client(url=https://api.example.com, method=GET)
+
+If the task requires checking a website or URL, you MUST use the website_monitor tool.
+If the task requires making HTTP requests, you MUST use the http_client tool.""")
+        else:
+            prompt_parts.append("\nYou have no tools available. Respond directly using your knowledge and the rules provided.")
+        
+        # Final instruction
+        prompt_parts.append("""
+Follow the rules and formats specified in your background. Be precise and accurate.
+If you need to return structured data (like JSON), format it correctly.""")
+        
+        final_prompt = "\n".join(prompt_parts)
+        
+        # Log the system prompt size for monitoring
+        logger.info(f"System prompt for {agent['name']}: {len(final_prompt)} characters")
+        if len(final_prompt) > 15000:
+            logger.warning(f"Large system prompt for {agent['name']}: {len(final_prompt)} chars")
+        
+        return final_prompt
     
     def _create_explicit_tool_instruction(self, agent: Dict[str, Any], task: str) -> str:
         """Create explicit instruction to force the LLM to use tools"""
@@ -265,34 +493,16 @@ Use the appropriate tool for: "{task}" """
         
         return None
     
+    # Keep the old method for backward compatibility but mark it as deprecated
     def _build_simple_system_prompt(
         self, 
         agent: Dict[str, Any], 
         task: str, 
         context: Dict[str, Any]
     ) -> str:
-        """Build simple system prompt optimized for small models"""
-        tools_list = self._get_simple_tool_list(agent["tools"])
-        
-        prompt = f"""You are {agent['name']}: {agent['role']}
-
-Your task: {task}
-
-Available tools: {tools_list}
-
-IMPORTANT: To use a tool, use this exact format:
-TOOL_CALL: tool_name(parameter=value)
-
-Examples:
-- TOOL_CALL: website_monitor(url=https://google.com, expected_status=200)
-- TOOL_CALL: http_client(url=https://api.example.com, method=GET)
-
-If the task requires checking a website or URL, you MUST use the website_monitor tool.
-If the task requires making HTTP requests, you MUST use the http_client tool.
-
-Never write code. Use tools when available and appropriate."""
-        
-        return prompt
+        """DEPRECATED: Use _build_comprehensive_system_prompt instead"""
+        logger.warning("Using deprecated _build_simple_system_prompt. Please use _build_comprehensive_system_prompt")
+        return self._build_comprehensive_system_prompt(agent, task, context)
     
     def _get_simple_tool_list(self, tool_names: List[str]) -> str:
         """Get simple list of available tools"""
@@ -315,20 +525,63 @@ Never write code. Use tools when available and appropriate."""
         chat_history: List[Dict[str, str]], 
         iteration: int
     ) -> str:
-        """Generate response with explicit task instruction"""
+        """Generate response with explicit task instruction using LLM manager"""
         model_name = agent.get("ollama_model", self.config.default_model)
         
         # Add task to chat history for first iteration
         if iteration == 1:
             chat_history.append({"role": "user", "content": task})
         
-        response = await self.ollama_client.generate_response(
-            system_prompt,
+        # Use the new LLM manager interface
+        response = await self.llm_manager.generate_response(
+            prompt=system_prompt,
             model=model_name,
             chat_history=chat_history
         )
         
         return response
+    
+    async def _generate_with_messages(
+        self, 
+        agent: Dict[str, Any], 
+        chat_history: List[Dict[str, str]], 
+        system_prompt: str
+    ) -> str:
+        """Generate response using chat history and system prompt"""
+        model_name = agent.get("ollama_model", self.config.default_model)
+        
+        # Convert chat history to messages for the LLM manager
+        messages = []
+        
+        # Add system message first if we have a system prompt
+        if system_prompt:
+            messages.append(Message(role="system", content=system_prompt))
+        
+        # Add chat history
+        for msg in chat_history:
+            messages.append(Message(role=msg["role"], content=msg["content"]))
+        
+        # Create generation config
+        config = GenerationConfig(
+            temperature=0.7,
+            max_tokens=None,
+            stream=False
+        )
+        
+        # Generate using the provider directly for more control
+        provider_name, resolved_model = self.llm_manager._resolve_model(model_name)
+        provider = self.llm_manager.get_provider(provider_name)
+        
+        if provider:
+            response_obj = await provider.generate_response(messages, resolved_model, config)
+            return response_obj.content
+        else:
+            # Fallback to the simpler interface
+            return await self.llm_manager.generate_response(
+                prompt=chat_history[-1]["content"] if chat_history else "",
+                model=model_name,
+                chat_history=chat_history[:-1] if chat_history else []
+            )
     
     def _parse_tool_calls_aggressive(self, response: str) -> List[Dict[str, Any]]:
         """Aggressive tool call parsing with multiple patterns and duplicate prevention"""
