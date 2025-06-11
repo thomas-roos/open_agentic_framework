@@ -1,34 +1,36 @@
-# 🚀 DigitalOcean Production Deployment Guide
+# DigitalOcean Production Deployment Guide
 
-This guide provides detailed instructions for deploying the Agentic AI Framework to DigitalOcean for production use.
+This guide provides detailed instructions for deploying the Agentic AI Framework to DigitalOcean for production use with **multi-provider LLM support** and advanced monitoring.
 
-## 📋 Prerequisites
+## Prerequisites
 
 - DigitalOcean account
 - SSH key uploaded to DigitalOcean
 - Basic knowledge of Linux/Docker
 - Domain name (optional, for SSL)
+- API keys for additional providers (optional)
 
-## 💰 Cost Planning
+## Cost Planning
 
 ### Recommended Droplet Specifications
 
 | Configuration | Droplet Size | Monthly Cost | RAM | CPU | Storage | Use Case |
 |---------------|--------------|--------------|-----|-----|---------|----------|
-| **Development** | s-1vcpu-2gb | ~$12 | 2GB | 1 vCPU | 25GB SSD | Testing, SmolLM only |
+| **Development** | s-1vcpu-2gb | ~$12 | 2GB | 1 vCPU | 25GB SSD | Testing, Ollama only |
 | **Production** | s-2vcpu-4gb | ~$24 | 4GB | 2 vCPU | 25GB SSD | **Recommended** |
-| **High Performance** | s-4vcpu-8gb | ~$48 | 8GB | 4 vCPU | 25GB SSD | Heavy workloads |
-| **Enterprise** | s-8vcpu-16gb | ~$96 | 16GB | 8 vCPU | 50GB SSD | Large scale deployment |
+| **High Performance** | s-4vcpu-8gb | ~$48 | 8GB | 4 vCPU | 25GB SSD | Multi-provider, heavy workloads |
+| **Enterprise** | s-8vcpu-16gb | ~$96 | 16GB | 8 vCPU | 50GB SSD | Large scale, multiple models |
 
 ### Model Recommendations by Droplet Size
 
-| Droplet RAM | Recommended Models | Max Agents | Memory Settings |
-|-------------|-------------------|------------|-----------------|
-| 2GB | `smollm:135m`, `tinyllama:1.1b` | 2-3 | `MAX_AGENT_MEMORY_ENTRIES=3` |
-| 4GB | `granite3.2:2b`, `deepseek-r1:1.5b` | 5-10 | `MAX_AGENT_MEMORY_ENTRIES=5` |
-| 8GB+ | Any model, multiple concurrent | 10+ | `MAX_AGENT_MEMORY_ENTRIES=10` |
+| Droplet RAM | Recommended Models | Max Agents | Memory Settings | Provider Mix |
+|-------------|-------------------|------------|-----------------|--------------|
+| 2GB | `tinyllama:1.1b` | 2-3 | `MAX_AGENT_MEMORY_ENTRIES=3` | Ollama only |
+| 4GB | `granite3.2:2b` | 5-10 | `MAX_AGENT_MEMORY_ENTRIES=5` | Ollama primary |
+| 8GB+ | Multi-model setup | 10+ | `MAX_AGENT_MEMORY_ENTRIES=10` | Ollama + OpenAI |
+| 16GB+ | `gpt-4` + local models | 20+ | `MAX_AGENT_MEMORY_ENTRIES=15` | Full multi-provider |
 
-## 🏗 Deployment Steps
+## Deployment Steps
 
 ### Step 1: Create DigitalOcean Droplet
 
@@ -62,7 +64,7 @@ ssh root@your-droplet-ip
 apt update && apt upgrade -y
 
 # 3. Install essential packages
-apt install -y curl wget git htop ufw fail2ban
+apt install -y curl wget git htop ufw fail2ban jq
 
 # 4. Configure firewall
 ufw allow ssh
@@ -111,16 +113,36 @@ cp .env.production .env
 nano .env
 ```
 
-#### Production Environment Configuration
+#### Enhanced Production Environment Configuration
 
 ```bash
-# .env - Production Configuration
+# .env - Production Configuration with Multi-Provider Support
+
 # Core Settings
-OLLAMA_URL=http://ollama:11434
-DEFAULT_MODEL=granite3.2:2b
 API_HOST=0.0.0.0
 API_PORT=8000
 DATABASE_PATH=data/agentic_ai.db
+
+# Multi-Provider LLM Configuration
+DEFAULT_LLM_PROVIDER=ollama
+LLM_FALLBACK_ENABLED=true
+LLM_FALLBACK_ORDER=ollama,openai,openrouter
+
+# Ollama Provider (Primary)
+OLLAMA_ENABLED=true
+OLLAMA_URL=http://ollama:11434
+OLLAMA_DEFAULT_MODEL=granite3.2:2b
+
+# OpenAI Provider (Optional - uncomment to enable)
+# OPENAI_ENABLED=true
+# OPENAI_API_KEY=your-openai-api-key-here
+# OPENAI_DEFAULT_MODEL=gpt-3.5-turbo
+# OPENAI_ORGANIZATION=your-org-id  # Optional
+
+# OpenRouter Provider (Optional - uncomment to enable)
+# OPENROUTER_ENABLED=true
+# OPENROUTER_API_KEY=your-openrouter-api-key-here
+# OPENROUTER_DEFAULT_MODEL=openai/gpt-3.5-turbo
 
 # Memory Management (Optimized for production)
 MAX_AGENT_MEMORY_ENTRIES=5
@@ -128,20 +150,30 @@ CLEAR_MEMORY_ON_STARTUP=false
 MEMORY_CLEANUP_INTERVAL=3600
 MEMORY_RETENTION_DAYS=7
 
+# Model Warmup System
+MODEL_WARMUP_TIMEOUT=60
+MAX_CONCURRENT_WARMUPS=2
+AUTO_WARMUP_ON_STARTUP=true
+WARMUP_INTERVAL_HOURS=6
+MAX_IDLE_HOURS=24
+
 # Performance Settings
 MAX_AGENT_ITERATIONS=3
 SCHEDULER_INTERVAL=60
 TOOLS_DIRECTORY=tools
 
-# Security (Add your values)
+# Security (Recommended for production)
 API_KEY_ENABLED=true
-API_KEY=your-secure-api-key-here
+API_KEY=your-secure-api-key-here-minimum-32-characters
 
 # Email Configuration (for notifications)
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USERNAME=your-email@gmail.com
 SMTP_PASSWORD=your-app-password
+
+# Logging
+LOG_LEVEL=INFO
 ```
 
 ```bash
@@ -150,7 +182,7 @@ chmod +x deploy-digitalocean.sh
 ./deploy-digitalocean.sh
 ```
 
-### Step 5: Verify Deployment
+### Step 5: Verify Enhanced Deployment
 
 ```bash
 # 1. Check service status
@@ -159,14 +191,20 @@ docker-compose ps
 # 2. View logs
 docker-compose logs -f
 
-# 3. Test health endpoint
+# 3. Test comprehensive health endpoint
 curl http://localhost:8000/health
 
-# 4. Test from external access
+# 4. Check provider status
+curl http://localhost:8000/providers
+
+# 5. Test from external access
 curl http://your-droplet-ip:8000/health
+
+# 6. Verify model warmup system
+curl http://your-droplet-ip:8000/health | jq '.warmup_stats'
 ```
 
-## 🔧 Manual Deployment (Alternative)
+## Manual Deployment (Alternative)
 
 If the automated script fails, you can deploy manually:
 
@@ -185,28 +223,36 @@ docker-compose logs -f model-downloader
 
 # 5. Verify all services are running
 docker-compose ps
+
+# 6. Check provider initialization
+curl http://localhost:8000/providers
 ```
 
-## 🌐 Access Your Deployment
+## Access Your Enhanced Deployment
 
 After successful deployment, your framework will be accessible at:
 
-- **🏠 Main API**: `http://your-droplet-ip:8000`
-- **📚 API Documentation**: `http://your-droplet-ip:8000/docs`
-- **💖 Health Check**: `http://your-droplet-ip:8000/health`
-- **🤖 Models List**: `http://your-droplet-ip:8000/models`
-- **📊 Memory Stats**: `http://your-droplet-ip:8000/memory/stats`
+- **Main API**: `http://your-droplet-ip:8000`
+- **Interactive API Documentation**: `http://your-droplet-ip:8000/docs`
+- **Alternative Docs (ReDoc)**: `http://your-droplet-ip:8000/redoc`
+- **Health Check**: `http://your-droplet-ip:8000/health`
+- **Provider Status**: `http://your-droplet-ip:8000/providers`
+- **Models List**: `http://your-droplet-ip:8000/models/detailed`
+- **Memory Stats**: `http://your-droplet-ip:8000/memory/stats`
 
-## 🧪 Testing Your Production Deployment
+## Testing Your Production Deployment
 
-### 1. Health and System Checks
+### 1. Enhanced Health and System Checks
 
 ```bash
-# Test health endpoint
+# Test comprehensive health endpoint
 curl http://your-droplet-ip:8000/health
 
-# Check available models
-curl http://your-droplet-ip:8000/models
+# Check all provider status
+curl http://your-droplet-ip:8000/providers
+
+# Check detailed model information
+curl http://your-droplet-ip:8000/models/detailed
 
 # Check memory statistics
 curl http://your-droplet-ip:8000/memory/stats
@@ -215,61 +261,133 @@ curl http://your-droplet-ip:8000/memory/stats
 curl http://your-droplet-ip:8000/config
 ```
 
-### 2. Create and Test an Agent
+### 2. Test Multi-Provider Setup
 
 ```bash
-# Create a monitoring agent
+# Test default provider (Ollama)
+curl -X POST "http://your-droplet-ip:8000/models/test/granite3.2:2b"
+
+# If OpenAI is enabled, test it
+curl -X POST "http://your-droplet-ip:8000/models/test/gpt-3.5-turbo"
+
+# Configure a new provider dynamically (if needed)
+curl -X POST "http://your-droplet-ip:8000/providers/openai/configure" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true,
+    "api_key": "your-openai-key",
+    "default_model": "gpt-3.5-turbo"
+  }'
+```
+
+### 3. Create and Test Advanced Agent
+
+```bash
+# Create a monitoring agent with tool configurations
 curl -X POST "http://your-droplet-ip:8000/agents" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "prod_monitor",
     "role": "Production Monitor",
-    "goals": "Monitor system health and website availability",
-    "backstory": "Experienced production monitoring specialist",
-    "tools": ["website_monitor"],
+    "goals": "Monitor system health and website availability with intelligent analysis",
+    "backstory": "Experienced production monitoring specialist with deep understanding of system performance metrics",
+    "tools": ["website_monitor", "email_sender"],
     "ollama_model": "granite3.2:2b",
-    "enabled": true
+    "enabled": true,
+    "tool_configs": {
+      "email_sender": {
+        "smtp_host": "smtp.gmail.com",
+        "smtp_port": 587,
+        "from_email": "Production Monitor <alerts@yourcompany.com>"
+      }
+    }
   }'
 
-# Test the agent
+# Test the agent with intelligent analysis
 curl -X POST "http://your-droplet-ip:8000/agents/prod_monitor/execute" \
   -H "Content-Type: application/json" \
   -d '{
-    "task": "Check if https://google.com is accessible and report the status",
+    "task": "Check if https://google.com is accessible, analyze the response time, and provide a detailed status report including any performance concerns",
     "context": {}
   }'
 ```
 
-### 3. Test Website Monitoring
+### 4. Test Advanced Workflow
 
 ```bash
-# Direct tool test
-curl -X POST "http://your-droplet-ip:8000/tools/website_monitor/execute" \
+# Create workflow with variable substitution
+curl -X POST "http://your-droplet-ip:8000/workflows" \
   -H "Content-Type: application/json" \
   -d '{
-    "parameters": {
-      "url": "https://httpbin.org/status/200",
-      "expected_status": 200,
-      "timeout": 10
+    "name": "comprehensive_monitoring",
+    "description": "Advanced website monitoring with intelligent alerts",
+    "steps": [
+      {
+        "type": "tool",
+        "name": "website_monitor",
+        "parameters": {
+          "url": "{{target_url}}",
+          "expected_status": 200,
+          "timeout": 10
+        },
+        "context_key": "website_status"
+      },
+      {
+        "type": "agent",
+        "name": "prod_monitor",
+        "task": "Analyze website status: {{website_status}}. Response time was {{website_status.response_time}}ms. If response time > 2000ms or status != 200, this is an issue requiring immediate attention.",
+        "context_key": "analysis"
+      }
+    ],
+    "enabled": true
+  }'
+
+# Execute workflow with context variables
+curl -X POST "http://your-droplet-ip:8000/workflows/comprehensive_monitoring/execute" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "context": {
+      "target_url": "https://httpbin.org/status/200"
     }
   }'
 ```
 
-## 🔒 SSL Certificate Setup (Recommended)
+## Enhanced SSL Certificate Setup
 
-### Using Nginx and Let's Encrypt
+### Using Nginx with Let's Encrypt and Security Headers
 
 ```bash
 # 1. Install Nginx and Certbot
 apt install nginx certbot python3-certbot-nginx -y
 
-# 2. Create Nginx configuration
+# 2. Create enhanced Nginx configuration
 cat > /etc/nginx/sites-available/agentic-ai << EOF
 server {
     listen 80;
     server_name your-domain.com;
+    return 301 https://\$server_name\$request_uri;
+}
 
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+
+    # SSL Configuration (will be updated by certbot)
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+    
+    # Security headers
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # API rate limiting
+    limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
+    
     location / {
+        limit_req zone=api burst=20 nodelay;
+        
         proxy_pass http://localhost:8000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
@@ -279,6 +397,20 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_cache_bypass \$http_upgrade;
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # Health check endpoint (no rate limiting)
+    location /health {
+        proxy_pass http://localhost:8000/health;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 EOF
@@ -296,47 +428,78 @@ certbot renew --dry-run
 ```
 
 After SSL setup, your framework will be accessible via:
-- **🔒 HTTPS API**: `https://your-domain.com`
-- **📚 Secure Docs**: `https://your-domain.com/docs`
+- **HTTPS API**: `https://your-domain.com`
+- **Secure Docs**: `https://your-domain.com/docs`
 
-## 📊 Monitoring and Maintenance
+## Enhanced Monitoring and Maintenance
 
-### Resource Monitoring
+### Advanced Resource Monitoring
 
 ```bash
-# System resources
+# System resources with JSON output
 htop
 
-# Docker container stats
-docker stats
+# Docker container stats with formatting
+docker stats --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
 
-# Disk usage
+# Disk usage analysis
 df -h
+du -sh /var/lib/docker/
 
-# Memory usage
+# Memory usage details
 free -h
+cat /proc/meminfo | grep -E "MemTotal|MemFree|MemAvailable"
 
-# Check logs
+# Check framework-specific logs
 docker-compose logs -f --tail=100
 ```
 
-### Health Monitoring Script
-
-Create a monitoring script to check system health:
+### Comprehensive Health Monitoring Script
 
 ```bash
-# Create monitoring script
+# Create enhanced monitoring script
 cat > /usr/local/bin/agentic-health-check.sh << 'EOF'
 #!/bin/bash
-# Agentic AI Framework Health Check
+# Enhanced Agentic AI Framework Health Check
 
 HEALTH_URL="http://localhost:8000/health"
+PROVIDERS_URL="http://localhost:8000/providers"
+MEMORY_URL="http://localhost:8000/memory/stats"
 LOG_FILE="/var/log/agentic-health.log"
 DATE=$(date)
+API_KEY="${API_KEY:-}"
+
+# Add API key header if configured
+AUTH_HEADER=""
+if [ ! -z "$API_KEY" ]; then
+    AUTH_HEADER="Authorization: Bearer $API_KEY"
+fi
+
+# Function to make API calls with optional auth
+api_call() {
+    local url=$1
+    if [ ! -z "$AUTH_HEADER" ]; then
+        curl -s -H "$AUTH_HEADER" "$url"
+    else
+        curl -s "$url"
+    fi
+}
 
 # Check API health
-if curl -s "$HEALTH_URL" > /dev/null; then
+if api_call "$HEALTH_URL" > /dev/null; then
     echo "[$DATE] API is healthy" >> "$LOG_FILE"
+    
+    # Check provider status
+    PROVIDER_STATUS=$(api_call "$PROVIDERS_URL" | jq -r '.providers | to_entries[] | select(.value.is_healthy == false) | .key' 2>/dev/null)
+    if [ ! -z "$PROVIDER_STATUS" ]; then
+        echo "[$DATE] WARNING: Unhealthy providers: $PROVIDER_STATUS" >> "$LOG_FILE"
+    fi
+    
+    # Check memory usage
+    TOTAL_MEMORY=$(api_call "$MEMORY_URL" | jq -r '.total_memory_entries' 2>/dev/null)
+    if [ ! -z "$TOTAL_MEMORY" ] && [ "$TOTAL_MEMORY" -gt 100 ]; then
+        echo "[$DATE] WARNING: High memory usage: $TOTAL_MEMORY entries" >> "$LOG_FILE"
+    fi
 else
     echo "[$DATE] API is DOWN - attempting restart" >> "$LOG_FILE"
     cd /root/agentic-ai-framework
@@ -354,6 +517,12 @@ MEMORY_USAGE=$(free | grep Mem | awk '{printf "%.0f", $3/$2 * 100.0}')
 if [ "$MEMORY_USAGE" -gt 90 ]; then
     echo "[$DATE] WARNING: Memory usage is $MEMORY_USAGE%" >> "$LOG_FILE"
 fi
+
+# Check Docker container health
+UNHEALTHY_CONTAINERS=$(docker ps --format "table {{.Names}}\t{{.Status}}" | grep -v "Up" | wc -l)
+if [ "$UNHEALTHY_CONTAINERS" -gt 1 ]; then  # Header line counts as 1
+    echo "[$DATE] WARNING: $((UNHEALTHY_CONTAINERS-1)) containers are not running properly" >> "$LOG_FILE"
+fi
 EOF
 
 chmod +x /usr/local/bin/agentic-health-check.sh
@@ -362,31 +531,48 @@ chmod +x /usr/local/bin/agentic-health-check.sh
 echo "*/5 * * * * /usr/local/bin/agentic-health-check.sh" | crontab -
 ```
 
-### Backup Strategy
+### Enhanced Backup Strategy
 
 ```bash
-# Create backup script
+# Create comprehensive backup script
 cat > /usr/local/bin/agentic-backup.sh << 'EOF'
 #!/bin/bash
-# Backup Agentic AI Framework data
+# Enhanced Agentic AI Framework Backup
 
 BACKUP_DIR="/root/backups"
 DATE=$(date +%Y%m%d_%H%M%S)
 PROJECT_DIR="/root/agentic-ai-framework"
+RETENTION_DAYS=14
 
 mkdir -p "$BACKUP_DIR"
 
 # Backup database and configuration
+echo "Starting backup: agentic-backup-$DATE"
+
+# Create comprehensive backup
 tar -czf "$BACKUP_DIR/agentic-backup-$DATE.tar.gz" \
     -C "$PROJECT_DIR" \
     data/ \
     .env \
-    docker-compose.yml
+    docker-compose.yml \
+    tools/ \
+    logs/ \
+    --exclude="logs/*.log"
 
-# Keep only last 7 backups
-find "$BACKUP_DIR" -name "agentic-backup-*.tar.gz" -mtime +7 -delete
+# Backup just the database separately for faster restores
+cp "$PROJECT_DIR/data/agentic_ai.db" "$BACKUP_DIR/database-$DATE.db" 2>/dev/null || echo "Database file not found"
+
+# Export current configuration
+curl -s http://localhost:8000/config > "$BACKUP_DIR/config-$DATE.json" 2>/dev/null || echo "Could not export config"
+
+# Keep only last N backups
+find "$BACKUP_DIR" -name "agentic-backup-*.tar.gz" -mtime +$RETENTION_DAYS -delete
+find "$BACKUP_DIR" -name "database-*.db" -mtime +$RETENTION_DAYS -delete
+find "$BACKUP_DIR" -name "config-*.json" -mtime +$RETENTION_DAYS -delete
 
 echo "Backup completed: agentic-backup-$DATE.tar.gz"
+echo "Database backup: database-$DATE.db"
+echo "Config backup: config-$DATE.json"
 EOF
 
 chmod +x /usr/local/bin/agentic-backup.sh
@@ -395,7 +581,7 @@ chmod +x /usr/local/bin/agentic-backup.sh
 echo "0 2 * * * /usr/local/bin/agentic-backup.sh" | crontab -
 ```
 
-## 🔄 Updates and Maintenance
+## Updates and Maintenance
 
 ### Updating the Framework
 
@@ -404,7 +590,7 @@ echo "0 2 * * * /usr/local/bin/agentic-backup.sh" | crontab -
 cd /root/agentic-ai-framework
 
 # 2. Backup current state
-./backup.sh
+/usr/local/bin/agentic-backup.sh
 
 # 3. Pull latest changes
 git pull origin main
@@ -412,42 +598,32 @@ git pull origin main
 # 4. Update Docker images
 docker-compose pull
 
-# 5. Restart services
-docker-compose up -d
+# 5. Restart services with zero-downtime
+docker-compose up -d --no-deps agentic-ai
 
 # 6. Verify deployment
 curl http://localhost:8000/health
+curl http://localhost:8000/providers
+
+# 7. Test critical functionality
+curl -X POST "http://localhost:8000/models/test/granite3.2:2b"
 ```
 
-### Log Management
+### Provider Management Updates
 
 ```bash
-# View recent logs
-docker-compose logs --tail=100 -f
+# Update provider configurations without restart
+curl -X POST "http://localhost:8000/providers/reload" \
+  -H "Authorization: Bearer $API_KEY"
 
-# Check log sizes
-docker system df
-
-# Clean up old logs and containers
-docker system prune -a
-
-# Configure log rotation
-cat > /etc/logrotate.d/docker << EOF
-/var/lib/docker/containers/*/*.log {
-    rotate 7
-    daily
-    compress
-    size 10M
-    missingok
-    delaycompress
-    copytruncate
-}
-EOF
+# Test new provider configuration
+curl -X POST "http://localhost:8000/providers/openai/health-check" \
+  -H "Authorization: Bearer $API_KEY"
 ```
 
-## 🚨 Troubleshooting
+## Enhanced Troubleshooting
 
-### Common Issues and Solutions
+### Advanced Diagnostic Commands
 
 #### 1. Service Won't Start
 ```bash
@@ -457,75 +633,107 @@ systemctl status docker
 # Check compose file syntax
 docker-compose config
 
-# View detailed logs
-docker-compose logs agentic-ai
+# View detailed logs with timestamps
+docker-compose logs --timestamps agentic-ai
+
+# Check system resources
+free -h && df -h
 ```
 
-#### 2. Models Not Loading
+#### 2. Provider Issues
 ```bash
-# Check Ollama container
-docker logs agentic_ai_framework_ollama_1
+# Check all provider status
+curl http://localhost:8000/providers | jq '.providers'
 
-# Manually pull model
-docker exec -it agentic_ai_framework_ollama_1 ollama pull granite3.2:2b
+# Test specific provider health
+curl -X POST "http://localhost:8000/providers/ollama/health-check"
 
-# Check available space
-df -h
+# Check provider configuration
+curl http://localhost:8000/providers/ollama/config
+
+# Reload all providers
+curl -X POST "http://localhost:8000/providers/reload"
 ```
 
-#### 3. High Memory Usage
+#### 3. Model Warmup Issues
 ```bash
-# Check memory stats
-curl http://localhost:8000/memory/stats
+# Check warmup status
+curl http://localhost:8000/health | jq '.warmup_stats'
 
-# Clear all memory
-curl -X DELETE http://localhost:8000/memory/clear-all
+# Check which models are active
+curl http://localhost:8000/models/detailed | jq '.models[] | select(.supports_streaming == true)'
 
-# Restart services
-docker-compose restart
+# Test model directly
+curl -X POST "http://localhost:8000/models/test/granite3.2:2b"
 ```
 
-#### 4. API Not Accessible
+#### 4. Memory and Performance Issues
 ```bash
-# Check if service is running
-docker-compose ps
+# Detailed memory statistics
+curl http://localhost:8000/memory/stats | jq '.'
 
-# Check firewall
-ufw status
+# Clear memory intelligently
+curl -X POST "http://localhost:8000/memory/cleanup"
 
-# Check port binding
-netstat -tlnp | grep 8000
+# Check agent-specific memory
+curl http://localhost:8000/agents/website_guardian/memory
 
-# Test local access
-curl http://localhost:8000/health
+# Monitor Docker resource usage
+docker stats --no-stream
 ```
 
-### Emergency Recovery
+### Emergency Recovery Procedures
 
 ```bash
-# Complete reset (nuclear option)
+# Complete system reset (nuclear option)
 cd /root/agentic-ai-framework
+
+# 1. Stop all services
 docker-compose down -v
+
+# 2. Clean Docker system
 docker system prune -a -f
-git pull origin main
+
+# 3. Restore from backup if needed
+tar -xzf /root/backups/agentic-backup-LATEST.tar.gz
+
+# 4. Restart services
 docker-compose up -d
+
+# 5. Verify all systems
+./scripts/health-check-all.sh
 ```
 
-## 📞 Support and Monitoring
+## Enhanced Support and Monitoring
 
-### Setting Up Alerts
+### Production Monitoring Setup
 
-For production deployments, consider setting up:
+For enterprise deployments, consider:
 
-1. **Uptime Monitoring**: Use services like UptimeRobot or Pingdom
-2. **Log Monitoring**: Configure log aggregation with ELK stack or similar
-3. **Resource Alerts**: Set up DigitalOcean monitoring alerts
-4. **Email Notifications**: Configure SMTP for system alerts
+1. **Application Monitoring**
+   - Integrate with DataDog, New Relic, or Prometheus
+   - Monitor API response times and error rates
+   - Track memory usage and cleanup efficiency
 
-### Performance Optimization
+2. **Alerting Systems**
+   - Set up PagerDuty or similar for critical alerts
+   - Configure Slack/Discord webhooks for notifications
+   - Monitor provider health and automatic failover
+
+3. **Performance Analytics**
+   - Track model performance across providers
+   - Monitor workflow execution times
+   - Analyze memory usage patterns
+
+4. **Security Monitoring**
+   - Monitor API access patterns
+   - Set up fail2ban for suspicious activity
+   - Regular security audits
+
+### Performance Optimization for Production
 
 ```bash
-# Optimize Docker daemon
+# Optimize Docker daemon for production
 cat > /etc/docker/daemon.json << EOF
 {
   "log-driver": "json-file",
@@ -533,35 +741,52 @@ cat > /etc/docker/daemon.json << EOF
     "max-size": "10m",
     "max-file": "3"
   },
-  "storage-driver": "overlay2"
+  "storage-driver": "overlay2",
+  "live-restore": true
 }
 EOF
 
 systemctl restart docker
+
+# Optimize Nginx for high traffic
+cat >> /etc/nginx/nginx.conf << EOF
+worker_processes auto;
+worker_connections 1024;
+keepalive_timeout 65;
+client_max_body_size 50M;
+EOF
 ```
 
-## 🎯 Production Checklist
+## Enhanced Production Checklist
 
 - [ ] ✅ Droplet created with adequate resources (4GB+ recommended)
 - [ ] ✅ Firewall configured properly
 - [ ] ✅ Docker and Docker Compose installed
 - [ ] ✅ Application deployed and running
-- [ ] ✅ Health checks passing
+- [ ] ✅ All providers initialized and healthy
+- [ ] ✅ Model warmup system functioning
+- [ ] ✅ Health checks passing (API, providers, memory)
 - [ ] ✅ SSL certificate configured (if using domain)
-- [ ] ✅ Monitoring and alerting set up
-- [ ] ✅ Backup strategy implemented
+- [ ] ✅ Rate limiting and security headers configured
+- [ ] ✅ Enhanced monitoring and alerting set up
+- [ ] ✅ Comprehensive backup strategy implemented
 - [ ] ✅ Log rotation configured
-- [ ] ✅ Update procedure documented
+- [ ] ✅ Update procedure documented and tested
 - [ ] ✅ Emergency recovery plan tested
+- [ ] ✅ API authentication configured
+- [ ] ✅ Provider fallback tested
 
-## 💡 Performance Tips
+## Enhanced Performance Tips
 
-1. **Choose the Right Model**: Smaller models (granite3.2:2b) for better performance
-2. **Limit Memory**: Set `MAX_AGENT_MEMORY_ENTRIES=5` or lower for high-volume use
-3. **Monitor Resources**: Regular monitoring prevents performance issues
-4. **Use SSD Storage**: DigitalOcean SSD droplets provide better I/O performance
-5. **Regular Cleanup**: Automated memory and log cleanup maintains performance
+1. **Provider Strategy**: Use Ollama for speed, OpenAI for quality, OpenRouter for variety
+2. **Model Selection**: Choose the smallest model that meets your accuracy requirements
+3. **Memory Management**: Set appropriate `MAX_AGENT_MEMORY_ENTRIES` based on usage patterns
+4. **Warmup Optimization**: Configure warmup intervals based on your traffic patterns
+5. **Monitoring**: Regular monitoring prevents performance degradation
+6. **Resource Allocation**: Monitor and adjust based on actual usage patterns
+7. **Caching**: Leverage model warmup for frequently used models
+8. **Scaling**: Consider horizontal scaling for high-volume deployments
 
-Your Agentic AI Framework is now ready for production use! 🚀
+Your enhanced Agentic AI Framework with multi-provider support is now ready for production use!
 
 For additional support, refer to the main [README.md](README.md) or create an issue in the project repository.
