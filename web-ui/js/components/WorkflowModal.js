@@ -1,4 +1,4 @@
-// js/components/WorkflowModal.js - Workflow Modal Component
+// js/components/WorkflowModal.js - Enhanced Workflow Modal Component with Input Support
 
 const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) => {
     const { useState } = React;
@@ -6,10 +6,58 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
     const [formData, setFormData] = useState({
         name: workflow?.name || '',
         description: workflow?.description || '',
+        input_schema: workflow?.input_schema || {
+            type: 'object',
+            properties: {},
+            required: []
+        },
         steps: workflow?.steps || [],
         enabled: workflow?.enabled !== false
     });
     const [saving, setSaving] = useState(false);
+
+    const addInputField = () => {
+        const fieldName = prompt('Enter field name:');
+        if (!fieldName) return;
+
+        const fieldType = prompt('Enter field type (string, number, boolean, object, array):', 'string');
+        if (!fieldType) return;
+
+        const isRequired = confirm('Is this field required?');
+
+        setFormData(prev => ({
+            ...prev,
+            input_schema: {
+                ...prev.input_schema,
+                properties: {
+                    ...prev.input_schema.properties,
+                    [fieldName]: {
+                        type: fieldType,
+                        description: `${fieldName} input field`
+                    }
+                },
+                required: isRequired ? 
+                    [...prev.input_schema.required, fieldName] : 
+                    prev.input_schema.required
+            }
+        }));
+    };
+
+    const removeInputField = (fieldName) => {
+        setFormData(prev => {
+            const newProperties = { ...prev.input_schema.properties };
+            delete newProperties[fieldName];
+            
+            return {
+                ...prev,
+                input_schema: {
+                    ...prev.input_schema,
+                    properties: newProperties,
+                    required: prev.input_schema.required.filter(name => name !== fieldName)
+                }
+            };
+        });
+    };
 
     const addStep = (type) => {
         const newStep = {
@@ -18,7 +66,8 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
             name: '',
             task: type === 'agent' ? '' : undefined,
             parameters: type === 'tool' ? {} : undefined,
-            context_key: ''
+            context_key: '',
+            use_previous_output: false
         };
         setFormData(prev => ({
             ...prev,
@@ -110,82 +159,216 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                     key: 'content',
                     className: 'modal-content' 
                 }, [
-                    // Name Field
+                    // Basic Info Section
                     React.createElement('div', { 
-                        key: 'name-group',
-                        className: 'form-group' 
+                        key: 'basic-info',
+                        style: {
+                            background: '#f8fafc',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            padding: '16px',
+                            marginBottom: '20px'
+                        }
                     }, [
-                        React.createElement('label', { 
-                            key: 'label',
-                            className: 'form-label' 
-                        }, 'Name'),
-                        React.createElement('input', {
-                            key: 'input',
-                            className: 'form-input',
-                            type: 'text',
-                            value: formData.name,
-                            onChange: e => setFormData(prev => ({ ...prev, name: e.target.value })),
-                            placeholder: 'Enter workflow name',
-                            required: true
-                        })
+                        React.createElement('h4', { 
+                            key: 'title',
+                            style: { margin: '0 0 16px 0', color: '#374151' }
+                        }, '📋 Basic Information'),
+                        
+                        React.createElement('div', { 
+                            key: 'name-group',
+                            className: 'form-group' 
+                        }, [
+                            React.createElement('label', { 
+                                key: 'label',
+                                className: 'form-label' 
+                            }, 'Workflow Name'),
+                            React.createElement('input', {
+                                key: 'input',
+                                className: 'form-input',
+                                type: 'text',
+                                value: formData.name,
+                                onChange: e => setFormData(prev => ({ ...prev, name: e.target.value })),
+                                placeholder: 'Enter workflow name',
+                                required: true
+                            })
+                        ]),
+
+                        React.createElement('div', { 
+                            key: 'description-group',
+                            className: 'form-group' 
+                        }, [
+                            React.createElement('label', { 
+                                key: 'label',
+                                className: 'form-label' 
+                            }, 'Description'),
+                            React.createElement('textarea', {
+                                key: 'textarea',
+                                className: 'form-textarea',
+                                value: formData.description,
+                                onChange: e => setFormData(prev => ({ ...prev, description: e.target.value })),
+                                placeholder: 'Describe what this workflow does',
+                                required: true
+                            })
+                        ])
                     ]),
 
-                    // Description Field
+                    // Input Schema Section
                     React.createElement('div', { 
-                        key: 'description-group',
-                        className: 'form-group' 
+                        key: 'input-schema',
+                        style: {
+                            background: '#f8fafc',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            padding: '16px',
+                            marginBottom: '20px'
+                        }
                     }, [
-                        React.createElement('label', { 
-                            key: 'label',
-                            className: 'form-label' 
-                        }, 'Description'),
-                        React.createElement('textarea', {
-                            key: 'textarea',
-                            className: 'form-textarea',
-                            value: formData.description,
-                            onChange: e => setFormData(prev => ({ ...prev, description: e.target.value })),
-                            placeholder: 'Describe what this workflow does',
-                            required: true
-                        })
+                        React.createElement('div', {
+                            key: 'header',
+                            style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }
+                        }, [
+                            React.createElement('h4', { 
+                                key: 'title',
+                                style: { margin: 0, color: '#374151' }
+                            }, '🔧 Workflow Input Schema'),
+                            React.createElement('button', {
+                                key: 'add-field',
+                                type: 'button',
+                                className: 'btn btn-secondary',
+                                onClick: addInputField,
+                                style: { fontSize: '12px', padding: '4px 8px' }
+                            }, [
+                                React.createElement('i', { 
+                                    key: 'icon',
+                                    className: 'fas fa-plus' 
+                                }),
+                                ' Add Field'
+                            ])
+                        ]),
+
+                        React.createElement('div', {
+                            key: 'info',
+                            style: {
+                                background: '#dbeafe',
+                                border: '1px solid #93c5fd',
+                                borderRadius: '6px',
+                                padding: '12px',
+                                marginBottom: '16px'
+                            }
+                        }, [
+                            React.createElement('p', {
+                                key: 'desc',
+                                style: { margin: 0, color: '#1e40af', fontSize: '12px' }
+                            }, '💡 Define what inputs this workflow expects when executed. These will be prompted for or passed via API.')
+                        ]),
+
+                        Object.keys(formData.input_schema.properties).length === 0 ? 
+                            React.createElement('div', {
+                                key: 'empty-inputs',
+                                style: {
+                                    textAlign: 'center',
+                                    padding: '20px',
+                                    color: '#64748b',
+                                    border: '2px dashed #e2e8f0',
+                                    borderRadius: '8px'
+                                }
+                            }, 'No input fields defined. This workflow will run without input.') :
+                            React.createElement('div', {
+                                key: 'input-fields'
+                            }, Object.entries(formData.input_schema.properties).map(([fieldName, field]) => 
+                                React.createElement('div', {
+                                    key: fieldName,
+                                    style: {
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '12px',
+                                        padding: '8px',
+                                        background: 'white',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '6px',
+                                        marginBottom: '8px'
+                                    }
+                                }, [
+                                    React.createElement('div', {
+                                        key: 'info',
+                                        style: { flex: 1 }
+                                    }, [
+                                        React.createElement('strong', { key: 'name' }, fieldName),
+                                        React.createElement('span', { 
+                                            key: 'type',
+                                            style: { marginLeft: '8px', fontSize: '12px', color: '#64748b' }
+                                        }, `(${field.type})`),
+                                        formData.input_schema.required.includes(fieldName) && 
+                                            React.createElement('span', {
+                                                key: 'required',
+                                                style: { marginLeft: '8px', fontSize: '11px', color: '#ef4444' }
+                                            }, 'required')
+                                    ]),
+                                    React.createElement('button', {
+                                        key: 'remove',
+                                        type: 'button',
+                                        className: 'btn btn-danger',
+                                        onClick: () => removeInputField(fieldName),
+                                        style: { fontSize: '11px', padding: '2px 6px' }
+                                    }, [
+                                        React.createElement('i', { 
+                                            key: 'icon',
+                                            className: 'fas fa-trash' 
+                                        })
+                                    ])
+                                ])
+                            ))
                     ]),
 
                     // Steps Section
                     React.createElement('div', { 
-                        key: 'steps-group',
-                        className: 'form-group' 
+                        key: 'steps-section',
+                        style: {
+                            background: '#f8fafc',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            padding: '16px',
+                            marginBottom: '20px'
+                        }
                     }, [
-                        React.createElement('label', { 
-                            key: 'label',
-                            className: 'form-label' 
-                        }, 'Steps'),
                         React.createElement('div', {
-                            key: 'step-buttons',
-                            style: { marginBottom: '16px' }
+                            key: 'header',
+                            style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }
                         }, [
-                            React.createElement('button', {
-                                key: 'add-agent',
-                                type: 'button',
-                                className: 'btn btn-secondary',
-                                onClick: () => addStep('agent'),
-                                style: { marginRight: '8px' }
+                            React.createElement('h4', { 
+                                key: 'title',
+                                style: { margin: 0, color: '#374151' }
+                            }, '⚡ Workflow Steps'),
+                            React.createElement('div', {
+                                key: 'step-buttons'
                             }, [
-                                React.createElement('i', { 
-                                    key: 'icon',
-                                    className: 'fas fa-robot' 
-                                }),
-                                ' Add Agent Step'
-                            ]),
-                            React.createElement('button', {
-                                key: 'add-tool',
-                                type: 'button',
-                                className: 'btn btn-secondary',
-                                onClick: () => addStep('tool')
-                            }, [
-                                React.createElement('i', { 
-                                    key: 'icon',
-                                    className: 'fas fa-tools' 
-                                }),
-                                ' Add Tool Step'
+                                React.createElement('button', {
+                                    key: 'add-agent',
+                                    type: 'button',
+                                    className: 'btn btn-secondary',
+                                    onClick: () => addStep('agent'),
+                                    style: { marginRight: '8px', fontSize: '12px', padding: '4px 8px' }
+                                }, [
+                                    React.createElement('i', { 
+                                        key: 'icon',
+                                        className: 'fas fa-robot' 
+                                    }),
+                                    ' Add Agent'
+                                ]),
+                                React.createElement('button', {
+                                    key: 'add-tool',
+                                    type: 'button',
+                                    className: 'btn btn-secondary',
+                                    onClick: () => addStep('tool'),
+                                    style: { fontSize: '12px', padding: '4px 8px' }
+                                }, [
+                                    React.createElement('i', { 
+                                        key: 'icon',
+                                        className: 'fas fa-tools' 
+                                    }),
+                                    ' Add Tool'
+                                ])
                             ])
                         ]),
 
@@ -204,26 +387,59 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                             formData.steps.map((step, index) => 
                                 React.createElement('div', {
                                     key: step.id,
-                                    className: 'workflow-step'
+                                    style: {
+                                        background: 'white',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '8px',
+                                        padding: '16px',
+                                        marginBottom: '12px',
+                                        position: 'relative'
+                                    }
                                 }, [
                                     React.createElement('div', {
                                         key: 'step-number',
-                                        className: 'workflow-step-number'
+                                        style: {
+                                            position: 'absolute',
+                                            top: '-10px',
+                                            left: '16px',
+                                            background: '#3b82f6',
+                                            color: 'white',
+                                            width: '24px',
+                                            height: '24px',
+                                            borderRadius: '50%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: '12px',
+                                            fontWeight: '600'
+                                        }
                                     }, index + 1),
                                     React.createElement('div', {
                                         key: 'step-header',
-                                        className: 'workflow-step-header'
+                                        style: {
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            marginBottom: '16px',
+                                            paddingTop: '8px'
+                                        }
                                     }, [
                                         React.createElement('h4', { 
-                                            key: 'title' 
-                                        }, `Step ${index + 1}: ${step.type === 'agent' ? 'Agent' : 'Tool'}`),
+                                            key: 'title',
+                                            style: { margin: 0 }
+                                        }, `Step ${index + 1}: ${step.type === 'agent' ? '🤖 Agent' : '🔧 Tool'}`),
                                         React.createElement('button', {
                                             key: 'remove',
                                             type: 'button',
                                             className: 'btn btn-danger',
                                             onClick: () => removeStep(index),
                                             style: { padding: '4px 8px', fontSize: '12px' }
-                                        }, React.createElement('i', { className: 'fas fa-trash' }))
+                                        }, [
+                                            React.createElement('i', { 
+                                                key: 'icon',
+                                                className: 'fas fa-trash' 
+                                            })
+                                        ])
                                     ]),
 
                                     React.createElement('div', {
@@ -237,7 +453,7 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                             React.createElement('label', { 
                                                 key: 'label',
                                                 className: 'form-label' 
-                                            }, step.type === 'agent' ? 'Agent' : 'Tool'),
+                                            }, step.type === 'agent' ? 'Select Agent' : 'Select Tool'),
                                             React.createElement('select', {
                                                 key: 'select',
                                                 className: 'form-select',
@@ -248,7 +464,7 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                                 React.createElement('option', { 
                                                     key: 'placeholder',
                                                     value: '' 
-                                                }, `Select ${step.type}`),
+                                                }, `Choose ${step.type}`),
                                                 ...(step.type === 'agent' ? agents : tools).map(item => 
                                                     React.createElement('option', {
                                                         key: item.name,
@@ -265,16 +481,77 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                             React.createElement('label', { 
                                                 key: 'label',
                                                 className: 'form-label' 
-                                            }, 'Context Key'),
+                                            }, 'Output Key'),
                                             React.createElement('input', {
                                                 key: 'input',
                                                 className: 'form-input',
                                                 type: 'text',
                                                 value: step.context_key,
                                                 onChange: e => updateStep(index, { context_key: e.target.value }),
-                                                placeholder: 'e.g., website_status'
+                                                placeholder: 'e.g., website_status, analysis_result'
                                             })
                                         ])
+                                    ]),
+
+                                    // Input Source for this step
+                                    React.createElement('div', {
+                                        key: 'input-source',
+                                        className: 'form-group'
+                                    }, [
+                                        React.createElement('label', {
+                                            key: 'label',
+                                            className: 'form-label'
+                                        }, 'Input Source'),
+                                        React.createElement('div', {
+                                            key: 'options',
+                                            style: { display: 'flex', gap: '16px', flexWrap: 'wrap' }
+                                        }, [
+                                            React.createElement('label', {
+                                                key: 'workflow-input',
+                                                style: { display: 'flex', alignItems: 'center', gap: '6px' }
+                                            }, [
+                                                React.createElement('input', {
+                                                    key: 'radio',
+                                                    type: 'radio',
+                                                    name: `input-source-${index}`,
+                                                    checked: !step.use_previous_output,
+                                                    onChange: () => updateStep(index, { use_previous_output: false })
+                                                }),
+                                                React.createElement('span', { key: 'text' }, 'Use workflow input')
+                                            ]),
+                                            index > 0 && React.createElement('label', {
+                                                key: 'previous-output',
+                                                style: { display: 'flex', alignItems: 'center', gap: '6px' }
+                                            }, [
+                                                React.createElement('input', {
+                                                    key: 'radio',
+                                                    type: 'radio',
+                                                    name: `input-source-${index}`,
+                                                    checked: step.use_previous_output,
+                                                    onChange: () => updateStep(index, { use_previous_output: true })
+                                                }),
+                                                React.createElement('span', { key: 'text' }, 'Use previous step output')
+                                            ])
+                                        ])
+                                    ]),
+
+                                    // Task description for agent steps
+                                    step.type === 'agent' && React.createElement('div', {
+                                        key: 'task-field',
+                                        className: 'form-group'
+                                    }, [
+                                        React.createElement('label', {
+                                            key: 'label',
+                                            className: 'form-label'
+                                        }, 'Task Description'),
+                                        React.createElement('textarea', {
+                                            key: 'textarea',
+                                            className: 'form-textarea',
+                                            value: step.task || '',
+                                            onChange: e => updateStep(index, { task: e.target.value }),
+                                            placeholder: 'Describe what this agent should do with the input',
+                                            style: { minHeight: '60px' }
+                                        })
                                     ])
                                 ])
                             )
@@ -300,7 +577,7 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                             }),
                             React.createElement('span', { 
                                 key: 'label' 
-                            }, 'Enabled')
+                            }, 'Enable this workflow')
                         ])
                     )
                 ]),
