@@ -381,7 +381,7 @@ curl -X POST "http://localhost:8000/workflows" \
 
 ### **Scale to Production**
 Ready for production? Check out:
-- **[Production Deployment Guide](PRODUCTION.md)** - Deploy to DigitalOcean for $24/month
+- **[Production Deployment Guide](PRODUCTION.md)** - Deploy to CloudProvider
 - **[Complete README](README.md)** - Full feature documentation
 - **[Workflow Examples](README.md#creating-workflows)** - Advanced automation patterns
 
