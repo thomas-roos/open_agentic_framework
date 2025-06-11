@@ -75,12 +75,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Don't block the UI, just warn
             });
 
-        // Render the main App component
+        // Render the main App component using React 18 createRoot API
         console.log('Rendering App component...');
-        ReactDOM.render(
-            React.createElement(App),
-            document.getElementById('root')
-        );
+        
+        // Check if createRoot is available (React 18+)
+        if (ReactDOM.createRoot) {
+            const root = ReactDOM.createRoot(document.getElementById('root'));
+            root.render(React.createElement(App));
+        } else {
+            // Fallback for older React versions
+            console.warn('Using legacy ReactDOM.render - consider upgrading to React 18');
+            ReactDOM.render(
+                React.createElement(App),
+                document.getElementById('root')
+            );
+        }
         
         console.log('Agentic AI Framework UI loaded successfully!');
         

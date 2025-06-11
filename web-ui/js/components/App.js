@@ -34,6 +34,24 @@ const App = () => {
             ])),
             icon: 'fas fa-project-diagram'
         },
+        providers: { 
+            title: 'Providers & Models', 
+            component: ProviderManagement || (() => React.createElement('div', { className: 'empty-state' }, [
+                React.createElement('i', { key: 'icon', className: 'fas fa-server' }),
+                React.createElement('h3', { key: 'title' }, 'Provider Management - Coming Soon'),
+                React.createElement('p', { key: 'desc' }, 'Provider and model management will be available in a future update.')
+            ])),
+            icon: 'fas fa-server'
+        },
+        scheduling: { 
+            title: 'Scheduling', 
+            component: Scheduling || (() => React.createElement('div', { className: 'empty-state' }, [
+                React.createElement('i', { key: 'icon', className: 'fas fa-calendar-alt' }),
+                React.createElement('h3', { key: 'title' }, 'Scheduling - Coming Soon'),
+                React.createElement('p', { key: 'desc' }, 'Task scheduling will be available in a future update.')
+            ])),
+            icon: 'fas fa-calendar-alt'
+        },
         tools: { 
             title: 'Tools', 
             component: Tools || (() => React.createElement('div', { className: 'empty-state' }, [
