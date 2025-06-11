@@ -1,0 +1,156 @@
+// js/App.js - Main App Component
+
+const App = () => {
+    const { useState } = React;
+
+    const [currentPage, setCurrentPage] = useState('dashboard');
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+
+    const pages = {
+        dashboard: { 
+            title: 'Dashboard', 
+            component: Dashboard,
+            icon: 'fas fa-chart-line'
+        },
+        agents: { 
+            title: 'AI Agents', 
+            component: AgentManagement,
+            icon: 'fas fa-robot'
+        },
+        workflows: { 
+            title: 'Workflows', 
+            component: WorkflowBuilder || (() => React.createElement('div', {}, 'Workflows - Coming Soon')),
+            icon: 'fas fa-project-diagram'
+        },
+        tools: { 
+            title: 'Tools', 
+            component: Tools || (() => React.createElement('div', {}, 'Tools - Coming Soon')),
+            icon: 'fas fa-tools'
+        }
+    };
+
+    const CurrentComponent = pages[currentPage].component;
+
+    const handleNavClick = (page) => {
+        setCurrentPage(page);
+        setSidebarOpen(false); // Close sidebar on mobile after navigation
+    };
+
+    const toggleSidebar = () => {
+        setSidebarOpen(!sidebarOpen);
+    };
+
+    return React.createElement('div', { className: 'app' }, [
+        // Sidebar Overlay (Mobile)
+        React.createElement('div', {
+            key: 'overlay',
+            className: `sidebar-overlay ${sidebarOpen ? 'open' : ''}`,
+            onClick: () => setSidebarOpen(false)
+        }),
+
+        // Sidebar
+        React.createElement('div', { 
+            key: 'sidebar',
+            className: `sidebar ${sidebarOpen ? 'open' : ''}` 
+        }, [
+            // Sidebar Header
+            React.createElement('div', { 
+                key: 'header',
+                className: 'sidebar-header' 
+            }, 
+                React.createElement('div', { className: 'logo' }, [
+                    React.createElement('i', { 
+                        key: 'icon',
+                        className: 'fas fa-brain' 
+                    }),
+                    'Agentic AI'
+                ])
+            ),
+            
+            // Navigation Menu
+            React.createElement('nav', { 
+                key: 'nav',
+                className: 'nav-menu' 
+            }, Object.entries(pages).map(([pageKey, page]) =>
+                React.createElement('button', {
+                    key: pageKey,
+                    className: `nav-item ${currentPage === pageKey ? 'active' : ''}`,
+                    onClick: () => handleNavClick(pageKey)
+                }, [
+                    React.createElement('i', { 
+                        key: 'icon',
+                        className: page.icon 
+                    }),
+                    page.title
+                ])
+            ))
+        ]),
+
+        // Main Content
+        React.createElement('div', { 
+            key: 'main',
+            className: 'main-content' 
+        }, [
+            // Header
+            React.createElement('header', { 
+                key: 'header',
+                className: 'header' 
+            }, [
+                React.createElement('div', { 
+                    key: 'left',
+                    className: 'header-left' 
+                }, [
+                    React.createElement('button', {
+                        key: 'menu-btn',
+                        className: 'mobile-menu-btn',
+                        onClick: toggleSidebar
+                    }, React.createElement('i', { className: 'fas fa-bars' })),
+                    React.createElement('h1', { 
+                        key: 'title',
+                        className: 'page-title' 
+                    }, pages[currentPage].title)
+                ]),
+                
+                React.createElement('div', { 
+                    key: 'actions',
+                    className: 'header-actions' 
+                }, [
+                    React.createElement('a', {
+                        key: 'docs',
+                        href: 'http://localhost:8000/docs',
+                        target: '_blank',
+                        className: 'btn btn-secondary',
+                        title: 'Open API Documentation'
+                    }, [
+                        React.createElement('i', { 
+                            key: 'icon',
+                            className: 'fas fa-book' 
+                        }),
+                        ' API Docs'
+                    ]),
+                    React.createElement('button', {
+                        key: 'health',
+                        className: 'btn btn-secondary',
+                        onClick: () => window.open('http://localhost:8000/health', '_blank'),
+                        title: 'Check System Health'
+                    }, [
+                        React.createElement('i', { 
+                            key: 'icon',
+                            className: 'fas fa-heartbeat' 
+                        }),
+                        ' Health'
+                    ])
+                ])
+            ]),
+
+            // Content Area
+            React.createElement('main', { 
+                key: 'content',
+                className: 'content' 
+            }, React.createElement(CurrentComponent))
+        ])
+    ]);
+};
+
+// Make component globally available
+window.App = App;
