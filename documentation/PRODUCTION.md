@@ -5,7 +5,6 @@ This guide provides detailed instructions for deploying the Agentic AI Framework
 ## Prerequisites
 
 - Cloud Provider account
-- SSH key uploaded to DigitalOcean
 - Basic knowledge of Linux/Docker
 - Domain name (optional, for SSL)
 - API keys for additional providers (optional)
@@ -170,10 +169,7 @@ LOG_LEVEL=INFO
 ```
 
 ```bash
-# 4. Run the automated deployment script
-chmod +x deploy-digitalocean.sh
-./deploy-digitalocean.sh
-```
+
 
 ### Step 5: Verify Enhanced Deployment
 
@@ -230,7 +226,7 @@ After successful deployment, your framework will be accessible at:
 - **Alternative Docs (ReDoc)**: `http://your-droplet-ip:8000/redoc`
 - **Health Check**: `http://your-droplet-ip:8000/health`
 - **Provider Status**: `http://your-droplet-ip:8000/providers`
-- **Models List**: `http://your-droplet-ip:8000/models/detailed`
+- **Models List**: `http://your-droplet-ip:8000/models`
 - **Memory Stats**: `http://your-droplet-ip:8000/memory/stats`
 
 ## Testing Your Production Deployment
