@@ -1,4 +1,4 @@
-// js/components/Scheduling.js - Scheduling Component
+// js/components/Scheduling.js - Enhanced Scheduling Component with Recurring Task Support
 
 const Scheduling = () => {
     const { useState, useEffect } = React;
@@ -9,6 +9,10 @@ const Scheduling = () => {
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [editingTask, setEditingTask] = useState(null);
+    const [statistics, setStatistics] = useState(null);
+    const [selectedTaskExecutions, setSelectedTaskExecutions] = useState(null);
+    const [showExecutions, setShowExecutions] = useState(false);
+    const [filterType, setFilterType] = useState('all'); // all, one-time, recurring, active, disabled
 
     useEffect(() => {
         loadData();
@@ -17,15 +21,17 @@ const Scheduling = () => {
     const loadData = async () => {
         try {
             setLoading(true);
-            const [tasksData, agentsData, workflowsData] = await Promise.allSettled([
+            const [tasksData, agentsData, workflowsData, statsData] = await Promise.allSettled([
                 api.getScheduledTasks(),
                 api.getAgents(),
-                api.getWorkflows()
+                api.getWorkflows(),
+                api.getScheduleStatistics().catch(() => null) // Optional endpoint
             ]);
 
             setScheduledTasks(tasksData.status === 'fulfilled' ? tasksData.value : []);
             setAgents(agentsData.status === 'fulfilled' ? agentsData.value : []);
             setWorkflows(workflowsData.status === 'fulfilled' ? workflowsData.value : []);
+            setStatistics(statsData.status === 'fulfilled' ? statsData.value : null);
         } catch (error) {
             console.error('Failed to load scheduling data:', error);
         } finally {
@@ -54,13 +60,49 @@ const Scheduling = () => {
         }
     };
 
-    const getTaskStatusBadge = (status) => {
+    const handleToggleTask = async (taskId, currentEnabled) => {
+        try {
+            if (currentEnabled) {
+                await api.disableScheduledTask(taskId);
+            } else {
+                await api.enableScheduledTask(taskId);
+            }
+            await loadData();
+        } catch (error) {
+            alert(`Failed to ${currentEnabled ? 'disable' : 'enable'} task: ${error.message}`);
+        }
+    };
+
+    const handleViewExecutions = async (taskId) => {
+        try {
+            const executions = await api.getTaskExecutions(taskId, 20);
+            setSelectedTaskExecutions(executions);
+            setShowExecutions(true);
+        } catch (error) {
+            alert(`Failed to load execution history: ${error.message}`);
+        }
+    };
+
+    const getTaskStatusBadge = (task) => {
+        const { status, enabled, is_recurring } = task;
+        
+        if (!enabled) {
+            return React.createElement('span', {
+                className: 'status status-offline'
+            }, 'Disabled');
+        }
+        
+        if (is_recurring) {
+            return React.createElement('span', {
+                className: 'status status-online'
+            }, 'Active');
+        }
+        
         const statusMap = {
             'pending': { class: 'status-warning', text: 'Pending' },
             'running': { class: 'status-online', text: 'Running' },
             'completed': { class: 'status-online', text: 'Completed' },
-            'failed': { class: 'status-offline', text: 'Failed' },
-            'cancelled': { class: 'status-offline', text: 'Cancelled' }
+            'failed': { class: 'status-offline', text: 'Failed' }
         };
         
         const statusInfo = statusMap[status] || { class: 'status-warning', text: status };
@@ -70,6 +112,7 @@ const Scheduling = () => {
     };
 
     const formatDateTime = (dateString) => {
+        if (!dateString) return 'N/A';
         try {
             return new Date(dateString).toLocaleString();
         } catch {
@@ -77,8 +120,8 @@ const Scheduling = () => {
         }
     };
 
-    const isTaskOverdue = (scheduledTime, status) => {
-        if (status !== 'pending') return false;
+    const isTaskOverdue = (scheduledTime, status, isRecurring) => {
+        if (isRecurring || status !== 'pending') return false;
         try {
             return new Date(scheduledTime) < new Date();
         } catch {
@@ -86,7 +129,54 @@ const Scheduling = () => {
         }
     };
 
+    const getFilteredTasks = () => {
+        let filtered = scheduledTasks;
+        
+        switch (filterType) {
+            case 'one-time':
+                filtered = scheduledTasks.filter(task => !task.is_recurring);
+                break;
+            case 'recurring':
+                filtered = scheduledTasks.filter(task => task.is_recurring);
+                break;
+            case 'active':
+                filtered = scheduledTasks.filter(task => task.enabled);
+                break;
+            case 'disabled':
+                filtered = scheduledTasks.filter(task => !task.enabled);
+                break;
+            default:
+                // 'all' - no filtering
+                break;
+        }
+        
+        return filtered;
+    };
+
+    const getNextExecutionDisplay = (task) => {
+        if (!task.is_recurring) return null;
+        
+        if (!task.enabled) return 'Disabled';
+        if (!task.next_execution) return 'Not scheduled';
+        
+        const nextTime = new Date(task.next_execution);
+        const now = new Date();
+        
+        if (nextTime <= now) return 'Due now';
+        
+        const diffMs = nextTime - now;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMins / 60);
+        const diffDays = Math.floor(diffHours / 24);
+        
+        if (diffDays > 0) return `in ${diffDays}d ${diffHours % 24}h`;
+        if (diffHours > 0) return `in ${diffHours}h ${diffMins % 60}m`;
+        return `in ${diffMins}m`;
+    };
+
     if (loading) return React.createElement(Loading, { message: "Loading scheduled tasks..." });
+
+    const filteredTasks = getFilteredTasks();
 
     return React.createElement('div', {}, [
         React.createElement('div', { 
@@ -128,12 +218,98 @@ const Scheduling = () => {
                 key: 'content',
                 className: 'card-content' 
             }, [
+                // Task Filter Tabs
                 React.createElement('div', {
-                    key: 'debug',
-                    className: 'debug-info'
-                }, `Debug: ${scheduledTasks.length} scheduled tasks, ${agents.length} agents, ${workflows.length} workflows available`),
+                    key: 'filters',
+                    style: { 
+                        marginBottom: '24px',
+                        borderBottom: '1px solid #e2e8f0',
+                        paddingBottom: '16px'
+                    }
+                }, [
+                    React.createElement('div', {
+                        key: 'filter-buttons',
+                        style: { display: 'flex', gap: '8px', flexWrap: 'wrap' }
+                    }, [
+                        { key: 'all', label: 'All Tasks', count: scheduledTasks.length },
+                        { key: 'one-time', label: 'One-time', count: scheduledTasks.filter(t => !t.is_recurring).length },
+                        { key: 'recurring', label: 'Recurring', count: scheduledTasks.filter(t => t.is_recurring).length },
+                        { key: 'active', label: 'Active', count: scheduledTasks.filter(t => t.enabled).length },
+                        { key: 'disabled', label: 'Disabled', count: scheduledTasks.filter(t => !t.enabled).length }
+                    ].map(filter => 
+                        React.createElement('button', {
+                            key: filter.key,
+                            className: `btn ${filterType === filter.key ? 'btn-primary' : 'btn-secondary'}`,
+                            onClick: () => setFilterType(filter.key),
+                            style: { fontSize: '12px' }
+                        }, `${filter.label} (${filter.count})`)
+                    ))
+                ]),
 
-                scheduledTasks.length === 0 ? 
+                // Statistics (if available)
+                statistics && React.createElement('div', {
+                    key: 'stats',
+                    className: 'stats-grid',
+                    style: { marginBottom: '24px' }
+                }, [
+                    React.createElement('div', { 
+                        key: 'total',
+                        className: 'stat-card' 
+                    }, [
+                        React.createElement('div', { 
+                            key: 'value',
+                            className: 'stat-value' 
+                        }, statistics.total_tasks),
+                        React.createElement('div', { 
+                            key: 'label',
+                            className: 'stat-label' 
+                        }, 'Total Tasks')
+                    ]),
+                    React.createElement('div', { 
+                        key: 'recurring',
+                        className: 'stat-card' 
+                    }, [
+                        React.createElement('div', { 
+                            key: 'value',
+                            className: 'stat-value' 
+                        }, statistics.active_recurring),
+                        React.createElement('div', { 
+                            key: 'label',
+                            className: 'stat-label' 
+                        }, 'Active Recurring')
+                    ]),
+                    React.createElement('div', { 
+                        key: 'executions',
+                        className: 'stat-card' 
+                    }, [
+                        React.createElement('div', { 
+                            key: 'value',
+                            className: 'stat-value' 
+                        }, statistics.total_executions),
+                        React.createElement('div', { 
+                            key: 'label',
+                            className: 'stat-label' 
+                        }, 'Total Executions')
+                    ]),
+                    React.createElement('div', { 
+                        key: 'success-rate',
+                        className: 'stat-card' 
+                    }, [
+                        React.createElement('div', { 
+                            key: 'value',
+                            className: 'stat-value',
+                            style: { color: statistics.successful_executions > statistics.failed_executions ? '#10b981' : '#ef4444' }
+                        }, statistics.total_executions > 0 ? 
+                            `${Math.round((statistics.successful_executions / statistics.total_executions) * 100)}%` : 
+                            '0%'),
+                        React.createElement('div', { 
+                            key: 'label',
+                            className: 'stat-label' 
+                        }, 'Success Rate')
+                    ])
+                ]),
+
+                filteredTasks.length === 0 ? 
                     React.createElement('div', {
                         key: 'empty',
                         className: 'empty-state'
@@ -142,9 +318,13 @@ const Scheduling = () => {
                             key: 'icon',
                             className: 'fas fa-calendar-alt'
                         }),
-                        React.createElement('h3', { key: 'title' }, 'No scheduled tasks'),
-                        React.createElement('p', { key: 'description' }, 'Schedule your first agent or workflow to run automatically!'),
-                        React.createElement('button', {
+                        React.createElement('h3', { key: 'title' }, 
+                            filterType === 'all' ? 'No scheduled tasks' : `No ${filterType} tasks`),
+                        React.createElement('p', { key: 'description' }, 
+                            filterType === 'all' ? 
+                                'Schedule your first agent or workflow to run automatically!' :
+                                `Try switching to a different filter or create a new task.`),
+                        filterType === 'all' && React.createElement('button', {
                             key: 'cta',
                             className: 'btn btn-primary',
                             onClick: handleCreateTask
@@ -157,159 +337,158 @@ const Scheduling = () => {
                         ])
                     ]) :
                     React.createElement('div', {
-                        key: 'tasks-list'
-                    }, [
-                        // Summary Stats
+                        key: 'tasks-list',
+                        className: 'item-list'
+                    }, filteredTasks.map(task => 
                         React.createElement('div', {
-                            key: 'stats',
-                            className: 'stats-grid',
-                            style: { marginBottom: '24px' }
+                            key: task.id,
+                            className: 'item-card',
+                            style: {
+                                borderLeft: !task.enabled ? '4px solid #9ca3af' :
+                                    isTaskOverdue(task.scheduled_time, task.status, task.is_recurring) ? '4px solid #ef4444' : 
+                                    task.status === 'completed' ? '4px solid #10b981' :
+                                    task.status === 'failed' ? '4px solid #ef4444' :
+                                    task.is_recurring ? '4px solid #8b5cf6' :
+                                    '4px solid #3b82f6'
+                            }
                         }, [
                             React.createElement('div', { 
-                                key: 'pending',
-                                className: 'stat-card' 
+                                key: 'info',
+                                className: 'item-info' 
                             }, [
-                                React.createElement('div', { 
-                                    key: 'value',
-                                    className: 'stat-value' 
-                                }, scheduledTasks.filter(t => t.status === 'pending').length),
-                                React.createElement('div', { 
-                                    key: 'label',
-                                    className: 'stat-label' 
-                                }, 'Pending Tasks')
-                            ]),
-                            React.createElement('div', { 
-                                key: 'completed',
-                                className: 'stat-card' 
-                            }, [
-                                React.createElement('div', { 
-                                    key: 'value',
-                                    className: 'stat-value' 
-                                }, scheduledTasks.filter(t => t.status === 'completed').length),
-                                React.createElement('div', { 
-                                    key: 'label',
-                                    className: 'stat-label' 
-                                }, 'Completed')
-                            ]),
-                            React.createElement('div', { 
-                                key: 'failed',
-                                className: 'stat-card' 
-                            }, [
-                                React.createElement('div', { 
-                                    key: 'value',
-                                    className: 'stat-value' 
-                                }, scheduledTasks.filter(t => t.status === 'failed').length),
-                                React.createElement('div', { 
-                                    key: 'label',
-                                    className: 'stat-label' 
-                                }, 'Failed')
-                            ]),
-                            React.createElement('div', { 
-                                key: 'overdue',
-                                className: 'stat-card' 
-                            }, [
-                                React.createElement('div', { 
-                                    key: 'value',
-                                    className: 'stat-value',
-                                    style: { color: '#ef4444' }
-                                }, scheduledTasks.filter(t => isTaskOverdue(t.scheduled_time, t.status)).length),
-                                React.createElement('div', { 
-                                    key: 'label',
-                                    className: 'stat-label' 
-                                }, 'Overdue')
-                            ])
-                        ]),
-
-                        // Tasks List
-                        React.createElement('div', {
-                            key: 'list',
-                            className: 'item-list'
-                        }, scheduledTasks.map(task => 
-                            React.createElement('div', {
-                                key: task.id,
-                                className: 'item-card',
-                                style: {
-                                    borderLeft: isTaskOverdue(task.scheduled_time, task.status) ? 
-                                        '4px solid #ef4444' : 
-                                        task.status === 'completed' ? '4px solid #10b981' :
-                                        task.status === 'failed' ? '4px solid #ef4444' :
-                                        '4px solid #3b82f6'
-                                }
-                            }, [
-                                React.createElement('div', { 
-                                    key: 'info',
-                                    className: 'item-info' 
+                                React.createElement('div', {
+                                    key: 'header',
+                                    style: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }
                                 }, [
-                                    React.createElement('div', {
-                                        key: 'header',
-                                        style: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }
+                                    React.createElement('h4', { 
+                                        key: 'name',
+                                        style: { margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }
                                     }, [
-                                        React.createElement('h4', { 
-                                            key: 'name',
-                                            style: { margin: 0 }
-                                        }, task.task_type === 'agent' ? 
+                                        task.is_recurring && React.createElement('i', {
+                                            key: 'recurring-icon',
+                                            className: 'fas fa-sync-alt',
+                                            style: { color: '#8b5cf6', fontSize: '14px' },
+                                            title: 'Recurring task'
+                                        }),
+                                        task.task_type === 'agent' ? 
                                             `Agent: ${task.agent_name}` : 
-                                            `Workflow: ${task.workflow_name}`),
-                                        getTaskStatusBadge(task.status),
-                                        isTaskOverdue(task.scheduled_time, task.status) && 
-                                            React.createElement('span', {
-                                                key: 'overdue',
-                                                style: { 
-                                                    fontSize: '11px', 
-                                                    color: '#ef4444',
-                                                    fontWeight: '600'
-                                                }
-                                            }, '⚠️ OVERDUE')
+                                            `Workflow: ${task.workflow_name}`
                                     ]),
-                                    React.createElement('p', { 
-                                        key: 'description' 
-                                    }, task.task_description || 'No description'),
-                                    React.createElement('div', {
-                                        key: 'details',
-                                        style: { fontSize: '12px', color: '#64748b', marginTop: '8px' }
-                                    }, [
-                                        React.createElement('div', { 
-                                            key: 'scheduled' 
-                                        }, `⏰ Scheduled: ${formatDateTime(task.scheduled_time)}`),
-                                        task.executed_at && React.createElement('div', { 
-                                            key: 'executed' 
-                                        }, `✅ Executed: ${formatDateTime(task.executed_at)}`),
-                                        task.result && React.createElement('div', { 
-                                            key: 'result',
+                                    getTaskStatusBadge(task),
+                                    isTaskOverdue(task.scheduled_time, task.status, task.is_recurring) && 
+                                        React.createElement('span', {
+                                            key: 'overdue',
                                             style: { 
-                                                marginTop: '4px',
-                                                padding: '4px 8px',
-                                                background: task.status === 'failed' ? '#fee2e2' : '#f0fdf4',
-                                                borderRadius: '4px',
-                                                maxWidth: '300px',
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis',
-                                                whiteSpace: 'nowrap'
+                                                fontSize: '11px', 
+                                                color: '#ef4444',
+                                                fontWeight: '600'
                                             }
-                                        }, `Result: ${task.result}`)
-                                    ])
+                                        }, '⚠️ OVERDUE')
                                 ]),
-                                React.createElement('div', { 
-                                    key: 'actions',
-                                    className: 'item-actions' 
+                                React.createElement('p', { 
+                                    key: 'description' 
+                                }, task.task_description || 'No description'),
+                                React.createElement('div', {
+                                    key: 'details',
+                                    style: { fontSize: '12px', color: '#64748b', marginTop: '8px' }
                                 }, [
+                                    React.createElement('div', { 
+                                        key: 'scheduled' 
+                                    }, `⏰ ${task.is_recurring ? 'First execution' : 'Scheduled'}: ${formatDateTime(task.scheduled_time)}`),
+                                    
+                                    task.is_recurring && React.createElement('div', { 
+                                        key: 'pattern' 
+                                    }, `🔄 Pattern: ${task.recurrence_pattern} (${task.recurrence_type})`),
+                                    
+                                    task.is_recurring && task.next_execution && React.createElement('div', { 
+                                        key: 'next' 
+                                    }, `⏭️ Next execution: ${formatDateTime(task.next_execution)} (${getNextExecutionDisplay(task)})`),
+                                    
+                                    task.is_recurring && React.createElement('div', { 
+                                        key: 'executions' 
+                                    }, `📊 Executions: ${task.execution_count}${task.max_executions ? `/${task.max_executions}` : ''} (${task.failure_count} failures)`),
+                                    
+                                    task.last_execution && React.createElement('div', { 
+                                        key: 'last' 
+                                    }, `✅ Last: ${formatDateTime(task.last_execution)}`),
+                                    
+                                    task.result && !task.is_recurring && React.createElement('div', { 
+                                        key: 'result',
+                                        style: { 
+                                            marginTop: '4px',
+                                            padding: '4px 8px',
+                                            background: task.status === 'failed' ? '#fee2e2' : '#f0fdf4',
+                                            borderRadius: '4px',
+                                            maxWidth: '300px',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap'
+                                        }
+                                    }, `Result: ${task.result}`)
+                                ])
+                            ]),
+                            React.createElement('div', { 
+                                key: 'actions',
+                                className: 'item-actions',
+                                style: { display: 'flex', flexDirection: 'column', gap: '4px' }
+                            }, [
+                                React.createElement('div', {
+                                    key: 'top-actions',
+                                    style: { display: 'flex', gap: '4px' }
+                                }, [
+                                    React.createElement('button', {
+                                        key: 'toggle',
+                                        className: `btn ${task.enabled ? 'btn-warning' : 'btn-success'}`,
+                                        onClick: () => handleToggleTask(task.id, task.enabled),
+                                        disabled: task.status === 'running',
+                                        style: { fontSize: '12px', padding: '4px 8px' },
+                                        title: task.enabled ? 'Disable task' : 'Enable task'
+                                    }, [
+                                        React.createElement('i', { 
+                                            key: 'icon',
+                                            className: task.enabled ? 'fas fa-pause' : 'fas fa-play'
+                                        }),
+                                        ' ', task.enabled ? 'Disable' : 'Enable'
+                                    ]),
+                                    
                                     React.createElement('button', {
                                         key: 'edit',
                                         className: 'btn btn-secondary',
                                         onClick: () => handleEditTask(task),
-                                        disabled: task.status === 'running'
+                                        disabled: task.status === 'running',
+                                        style: { fontSize: '12px', padding: '4px 8px' }
                                     }, [
                                         React.createElement('i', { 
                                             key: 'icon',
                                             className: 'fas fa-edit' 
                                         }),
                                         ' Edit'
+                                    ])
+                                ]),
+                                
+                                React.createElement('div', {
+                                    key: 'bottom-actions',
+                                    style: { display: 'flex', gap: '4px' }
+                                }, [
+                                    task.is_recurring && React.createElement('button', {
+                                        key: 'history',
+                                        className: 'btn btn-secondary',
+                                        onClick: () => handleViewExecutions(task.id),
+                                        style: { fontSize: '12px', padding: '4px 8px' }
+                                    }, [
+                                        React.createElement('i', { 
+                                            key: 'icon',
+                                            className: 'fas fa-history' 
+                                        }),
+                                        ' History'
                                     ]),
+                                    
                                     React.createElement('button', {
                                         key: 'delete',
                                         className: 'btn btn-danger',
                                         onClick: () => handleDeleteTask(task.id),
-                                        disabled: task.status === 'running'
+                                        disabled: task.status === 'running',
+                                        style: { fontSize: '12px', padding: '4px 8px' }
                                     }, [
                                         React.createElement('i', { 
                                             key: 'icon',
@@ -319,12 +498,12 @@ const Scheduling = () => {
                                     ])
                                 ])
                             ])
-                        ))
-                    ])
+                        ])
+                    ))
             ])
         ]),
 
-        // Modal
+        // Task Creation/Edit Modal
         showModal && React.createElement(ScheduleTaskModal, {
             key: 'modal',
             task: editingTask,
@@ -332,7 +511,105 @@ const Scheduling = () => {
             workflows: workflows,
             onClose: () => setShowModal(false),
             onSave: loadData
-        })
+        }),
+
+        // Execution History Modal
+        showExecutions && React.createElement('div', {
+            key: 'executions-modal',
+            className: 'modal-overlay',
+            onClick: () => setShowExecutions(false)
+        }, React.createElement('div', {
+            className: 'modal large',
+            onClick: e => e.stopPropagation(),
+            style: { maxWidth: '800px' }
+        }, [
+            React.createElement('div', { 
+                key: 'header',
+                className: 'modal-header' 
+            }, [
+                React.createElement('h3', { 
+                    key: 'title',
+                    className: 'modal-title' 
+                }, `Execution History - Task ${selectedTaskExecutions?.task_id}`),
+                React.createElement('button', {
+                    key: 'close',
+                    className: 'modal-close',
+                    onClick: () => setShowExecutions(false)
+                }, React.createElement('i', { className: 'fas fa-times' }))
+            ]),
+            
+            React.createElement('div', { 
+                key: 'content',
+                className: 'modal-content',
+                style: { maxHeight: '500px', overflowY: 'auto' }
+            }, [
+                selectedTaskExecutions?.executions?.length === 0 ? 
+                    React.createElement('div', {
+                        key: 'empty',
+                        className: 'empty-state'
+                    }, [
+                        React.createElement('i', {
+                            key: 'icon',
+                            className: 'fas fa-history'
+                        }),
+                        React.createElement('h3', { key: 'title' }, 'No execution history'),
+                        React.createElement('p', { key: 'description' }, 'This task has not been executed yet.')
+                    ]) :
+                    React.createElement('div', {
+                        key: 'executions-list',
+                        className: 'item-list'
+                    }, selectedTaskExecutions?.executions?.map((execution, index) => 
+                        React.createElement('div', {
+                            key: execution.id,
+                            className: 'item-card',
+                            style: {
+                                borderLeft: execution.status === 'completed' ? '4px solid #10b981' : '4px solid #ef4444'
+                            }
+                        }, [
+                            React.createElement('div', {
+                                key: 'execution-info',
+                                style: { fontSize: '14px' }
+                            }, [
+                                React.createElement('div', {
+                                    key: 'header',
+                                    style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }
+                                }, [
+                                    React.createElement('strong', { key: 'title' }, `Execution #${selectedTaskExecutions.executions.length - index}`),
+                                    React.createElement('span', {
+                                        key: 'status',
+                                        className: `status ${execution.status === 'completed' ? 'status-online' : 'status-offline'}`
+                                    }, execution.status === 'completed' ? 'Success' : 'Failed')
+                                ]),
+                                React.createElement('div', {
+                                    key: 'details',
+                                    style: { fontSize: '12px', color: '#64748b' }
+                                }, [
+                                    React.createElement('div', { key: 'time' }, `🕐 ${formatDateTime(execution.execution_time)}`),
+                                    execution.duration_seconds && React.createElement('div', { key: 'duration' }, `⏱️ Duration: ${execution.duration_seconds}s`),
+                                    execution.result && React.createElement('div', { 
+                                        key: 'result',
+                                        style: { marginTop: '4px', wordBreak: 'break-word' }
+                                    }, execution.status === 'completed' ? 
+                                        `✅ Result: ${execution.result.length > 100 ? execution.result.substring(0, 100) + '...' : execution.result}` :
+                                        `❌ Error: ${execution.error_message || execution.result}`
+                                    )
+                                ])
+                            ])
+                        ])
+                    ))
+            ]),
+            
+            React.createElement('div', { 
+                key: 'footer',
+                className: 'modal-footer' 
+            }, [
+                React.createElement('button', {
+                    key: 'close-btn',
+                    className: 'btn btn-secondary',
+                    onClick: () => setShowExecutions(false)
+                }, 'Close')
+            ])
+        ]))
     ]);
 };
 

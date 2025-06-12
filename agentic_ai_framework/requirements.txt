@@ -29,6 +29,9 @@ aiosmtplib==3.0.1
 # Background task scheduling
 apscheduler==3.10.4
 
+# NEW: Cron expression support for recurring tasks
+croniter>=1.4.0
+
 # Logging and monitoring
 structlog==23.2.0
 
@@ -50,7 +53,3 @@ orjson==3.9.10
 
 # Date and time utilities
 python-dateutil==2.8.2
-
-# Multi-Provider LLM Support
-# Note: All LLM providers (OpenAI, OpenRouter, Ollama) use standard HTTP clients
-# No additional dependencies required - leveraging existing aiohttp and requests
