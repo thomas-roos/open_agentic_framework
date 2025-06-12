@@ -1,4 +1,4 @@
-// js/components/WorkflowModal.js - Enhanced Workflow Modal Component with Input Support
+// js/components/WorkflowModal.js - Complete Enhanced Workflow Modal with Standardized Parameter System
 
 const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) => {
     const { useState } = React;
@@ -15,6 +15,374 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
         enabled: workflow?.enabled !== false
     });
     const [saving, setSaving] = useState(false);
+
+    // Standardized Parameter Renderer
+    const ParameterRenderer = {
+        
+        // Main entry point - renders any parameter based on its schema
+        render(step, stepIndex, paramName, paramSchema, isRequired, updateStep) {
+            const currentValue = step.parameters && step.parameters[paramName] !== undefined 
+                ? step.parameters[paramName] 
+                : paramSchema.default;
+
+            const updateParameter = (value) => {
+                updateStep(stepIndex, {
+                    parameters: {
+                        ...(step.parameters || {}),
+                        [paramName]: value
+                    }
+                });
+            };
+
+            // Determine parameter complexity and render accordingly
+            if (paramSchema.type === 'array' && paramSchema.items?.type === 'object') {
+                return this.renderComplexArray(paramName, paramSchema, currentValue, updateParameter);
+            } else if (paramSchema.type === 'object' && paramSchema.properties) {
+                return this.renderComplexObject(paramName, paramSchema, currentValue, updateParameter);
+            } else {
+                return this.renderSimpleParameter(paramName, paramSchema, currentValue, updateParameter, isRequired);
+            }
+        },
+
+        // Simple parameters: string, number, boolean, simple arrays/objects
+        renderSimpleParameter(paramName, paramSchema, currentValue, updateParameter, isRequired) {
+            const commonInputStyle = { fontSize: '12px', width: '100%' };
+            
+            switch (paramSchema.type) {
+                case 'boolean':
+                    return React.createElement('label', {
+                        key: 'boolean-input',
+                        style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }
+                    }, [
+                        React.createElement('input', {
+                            key: 'checkbox',
+                            type: 'checkbox',
+                            checked: currentValue || false,
+                            onChange: e => updateParameter(e.target.checked)
+                        }),
+                        React.createElement('span', { key: 'label' }, 
+                            paramSchema.description || `Enable ${paramName}`
+                        )
+                    ]);
+
+                case 'integer':
+                    return React.createElement('input', {
+                        key: 'integer-input',
+                        className: 'form-input',
+                        type: 'number',
+                        step: '1',
+                        value: currentValue !== undefined ? currentValue : '',
+                        onChange: e => updateParameter(e.target.value ? parseInt(e.target.value) : undefined),
+                        placeholder: paramSchema.description || `Enter ${paramName}`,
+                        required: isRequired,
+                        style: commonInputStyle
+                    });
+
+                case 'number':
+                    return React.createElement('input', {
+                        key: 'number-input',
+                        className: 'form-input',
+                        type: 'number',
+                        step: 'any',
+                        value: currentValue !== undefined ? currentValue : '',
+                        onChange: e => updateParameter(e.target.value ? parseFloat(e.target.value) : undefined),
+                        placeholder: paramSchema.description || `Enter ${paramName}`,
+                        required: isRequired,
+                        style: commonInputStyle
+                    });
+
+                case 'string':
+                    if (paramSchema.enum) {
+                        return React.createElement('select', {
+                            key: 'enum-select',
+                            className: 'form-select',
+                            value: currentValue || '',
+                            onChange: e => updateParameter(e.target.value || undefined),
+                            required: isRequired,
+                            style: commonInputStyle
+                        }, [
+                            React.createElement('option', { key: 'empty', value: '' }, 
+                                `Choose ${paramName}`
+                            ),
+                            ...paramSchema.enum.map(option =>
+                                React.createElement('option', { key: option, value: option }, option)
+                            )
+                        ]);
+                    } else {
+                        return React.createElement('input', {
+                            key: 'string-input',
+                            className: 'form-input',
+                            type: 'text',
+                            value: currentValue || '',
+                            onChange: e => updateParameter(e.target.value || undefined),
+                            placeholder: paramSchema.description || `Enter ${paramName}`,
+                            required: isRequired,
+                            style: commonInputStyle
+                        });
+                    }
+
+                case 'array':
+                    return React.createElement('div', { key: 'simple-array' }, [
+                        React.createElement('textarea', {
+                            key: 'array-textarea',
+                            className: 'form-textarea',
+                            value: currentValue ? JSON.stringify(currentValue, null, 2) : '[]',
+                            onChange: e => {
+                                try {
+                                    const parsed = JSON.parse(e.target.value || '[]');
+                                    updateParameter(parsed);
+                                } catch (err) {
+                                    // Keep text for validation later
+                                }
+                            },
+                            placeholder: paramSchema.description || 'Enter JSON array',
+                            style: { fontSize: '11px', fontFamily: 'monospace', minHeight: '60px' }
+                        }),
+                        React.createElement('small', {
+                            key: 'help',
+                            style: { color: '#6b7280', fontSize: '10px' }
+                        }, 'Enter valid JSON array format')
+                    ]);
+
+                case 'object':
+                    return React.createElement('div', { key: 'simple-object' }, [
+                        React.createElement('textarea', {
+                            key: 'object-textarea',
+                            className: 'form-textarea',
+                            value: currentValue ? JSON.stringify(currentValue, null, 2) : '{}',
+                            onChange: e => {
+                                try {
+                                    const parsed = JSON.parse(e.target.value || '{}');
+                                    updateParameter(parsed);
+                                } catch (err) {
+                                    // Keep text for validation later
+                                }
+                            },
+                            placeholder: paramSchema.description || 'Enter JSON object',
+                            style: { fontSize: '11px', fontFamily: 'monospace', minHeight: '60px' }
+                        }),
+                        React.createElement('small', {
+                            key: 'help',
+                            style: { color: '#6b7280', fontSize: '10px' }
+                        }, 'Enter valid JSON object format')
+                    ]);
+
+                default:
+                    return React.createElement('input', {
+                        key: 'default-input',
+                        className: 'form-input',
+                        type: 'text',
+                        value: currentValue || '',
+                        onChange: e => updateParameter(e.target.value || undefined),
+                        placeholder: paramSchema.description || `Enter ${paramName}`,
+                        style: commonInputStyle
+                    });
+            }
+        },
+
+        // Complex object parameters with defined properties
+        renderComplexObject(paramName, paramSchema, currentValue, updateParameter) {
+            const objValue = currentValue || {};
+            const properties = paramSchema.properties || {};
+
+            const updateObjectField = (fieldName, value) => {
+                updateParameter({
+                    ...objValue,
+                    [fieldName]: value
+                });
+            };
+
+            return React.createElement('div', {
+                key: 'complex-object',
+                style: {
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    padding: '12px',
+                    background: '#f9fafb'
+                }
+            }, [
+                React.createElement('div', {
+                    key: 'object-header',
+                    style: { marginBottom: '12px' }
+                }, React.createElement('span', {
+                    style: { fontSize: '12px', fontWeight: '600', color: '#374151' }
+                }, `${paramName} Configuration`)),
+
+                React.createElement('div', {
+                    key: 'object-fields'
+                }, Object.entries(properties).map(([fieldName, fieldSchema]) =>
+                    React.createElement('div', {
+                        key: fieldName,
+                        style: { marginBottom: '8px' }
+                    }, [
+                        React.createElement('label', {
+                            key: 'field-label',
+                            style: { fontSize: '11px', color: '#6b7280', display: 'block', marginBottom: '2px' }
+                        }, fieldName),
+                        this.renderSimpleParameter(
+                            fieldName, 
+                            fieldSchema, 
+                            objValue[fieldName], 
+                            value => updateObjectField(fieldName, value),
+                            false
+                        )
+                    ])
+                ))
+            ]);
+        },
+
+        // Complex array parameters (like data_extractor extractions)
+        renderComplexArray(paramName, paramSchema, currentValue, updateParameter) {
+            const items = Array.isArray(currentValue) ? currentValue : [];
+            const itemSchema = paramSchema.items;
+
+            const addItem = () => {
+                const newItem = {};
+                // Set default values
+                if (itemSchema.properties) {
+                    Object.entries(itemSchema.properties).forEach(([propName, propSchema]) => {
+                        if (propSchema.default !== undefined) {
+                            newItem[propName] = propSchema.default;
+                        }
+                    });
+                }
+                updateParameter([...items, newItem]);
+            };
+
+            const removeItem = (index) => {
+                updateParameter(items.filter((_, i) => i !== index));
+            };
+
+            const updateItem = (index, field, value) => {
+                const newItems = [...items];
+                newItems[index] = { ...newItems[index], [field]: value };
+                updateParameter(newItems);
+            };
+
+            return React.createElement('div', {
+                key: 'complex-array',
+                style: {
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    padding: '12px',
+                    background: '#f8fafc'
+                }
+            }, [
+                // Array header with add button
+                React.createElement('div', {
+                    key: 'array-header',
+                    style: { 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center', 
+                        marginBottom: '12px' 
+                    }
+                }, [
+                    React.createElement('span', {
+                        key: 'title',
+                        style: { fontSize: '12px', fontWeight: '600', color: '#374151' }
+                    }, `${paramName} (${items.length} items)`),
+                    React.createElement('button', {
+                        key: 'add-btn',
+                        type: 'button',
+                        className: 'btn btn-secondary',
+                        onClick: addItem,
+                        style: { fontSize: '11px', padding: '4px 8px' }
+                    }, [
+                        React.createElement('i', { key: 'icon', className: 'fas fa-plus' }),
+                        ' Add Item'
+                    ])
+                ]),
+
+                // Render array items
+                React.createElement('div', {
+                    key: 'array-items'
+                }, items.map((item, itemIndex) =>
+                    React.createElement('div', {
+                        key: itemIndex,
+                        style: {
+                            border: '1px solid #d1d5db',
+                            borderRadius: '4px',
+                            padding: '8px',
+                            marginBottom: '8px',
+                            background: 'white',
+                            position: 'relative'
+                        }
+                    }, [
+                        React.createElement('button', {
+                            key: 'remove-btn',
+                            type: 'button',
+                            className: 'btn btn-danger',
+                            onClick: () => removeItem(itemIndex),
+                            style: {
+                                position: 'absolute',
+                                top: '4px',
+                                right: '4px',
+                                fontSize: '10px',
+                                padding: '2px 6px'
+                            }
+                        }, '×'),
+
+                        React.createElement('div', {
+                            key: 'item-fields',
+                            style: { paddingRight: '30px' }
+                        }, itemSchema.properties ? Object.entries(itemSchema.properties).map(([fieldName, fieldSchema]) =>
+                            React.createElement('div', {
+                                key: fieldName,
+                                style: { marginBottom: '6px' }
+                            }, [
+                                React.createElement('label', {
+                                    key: 'field-label',
+                                    style: { 
+                                        fontSize: '10px', 
+                                        color: '#6b7280', 
+                                        display: 'block',
+                                        marginBottom: '2px'
+                                    }
+                                }, fieldName),
+                                this.renderSimpleParameter(
+                                    fieldName,
+                                    fieldSchema,
+                                    item[fieldName],
+                                    value => updateItem(itemIndex, fieldName, value),
+                                    itemSchema.required?.includes(fieldName)
+                                )
+                            ])
+                        ) : null)
+                    ])
+                )),
+
+                // JSON fallback
+                React.createElement('details', {
+                    key: 'json-fallback',
+                    style: { marginTop: '8px' }
+                }, [
+                    React.createElement('summary', {
+                        key: 'summary',
+                        style: { fontSize: '10px', color: '#6b7280', cursor: 'pointer' }
+                    }, '🔧 Edit as JSON (Advanced)'),
+                    React.createElement('textarea', {
+                        key: 'json-editor',
+                        className: 'form-textarea',
+                        value: JSON.stringify(items, null, 2),
+                        onChange: e => {
+                            try {
+                                updateParameter(JSON.parse(e.target.value));
+                            } catch (err) {
+                                // Keep for validation
+                            }
+                        },
+                        style: { 
+                            fontSize: '10px', 
+                            fontFamily: 'monospace', 
+                            minHeight: '80px',
+                            marginTop: '4px'
+                        }
+                    })
+                ])
+            ]);
+        }
+    };
 
     const addInputField = () => {
         const fieldName = prompt('Enter field name:');
@@ -91,6 +459,71 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
         }));
     };
 
+    const renderToolParameters = (step, index) => {
+        if (step.type !== 'tool' || !step.name) return null;
+
+        const tool = tools.find(t => t.name === step.name);
+        if (!tool?.parameters_schema?.properties) return null;
+
+        const properties = tool.parameters_schema.properties;
+        const required = tool.parameters_schema.required || [];
+
+        return React.createElement('div', {
+            key: 'tool-params',
+            style: {
+                marginTop: '16px',
+                padding: '12px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '6px'
+            }
+        }, [
+            React.createElement('h5', {
+                key: 'title',
+                style: { margin: '0 0 12px 0', color: '#374151', fontSize: '14px' }
+            }, '🔧 Tool Parameters'),
+            
+            React.createElement('div', {
+                key: 'params-container',
+                style: { display: 'grid', gap: '12px' }
+            }, Object.entries(properties).map(([paramName, paramSchema]) =>
+                React.createElement('div', {
+                    key: paramName,
+                    className: 'form-group'
+                }, [
+                    React.createElement('label', {
+                        key: 'param-label',
+                        className: 'form-label',
+                        style: { fontSize: '13px', marginBottom: '4px' }
+                    }, [
+                        paramName,
+                        required.includes(paramName) && React.createElement('span', {
+                            key: 'required',
+                            style: { color: '#ef4444', marginLeft: '4px' }
+                        }, '*'),
+                        React.createElement('span', {
+                            key: 'type',
+                            style: { 
+                                marginLeft: '8px', 
+                                fontSize: '11px', 
+                                color: '#64748b',
+                                fontWeight: 'normal'
+                            }
+                        }, `(${paramSchema.type})`)
+                    ]),
+                    ParameterRenderer.render(
+                        step, 
+                        index, 
+                        paramName, 
+                        paramSchema, 
+                        required.includes(paramName),
+                        updateStep
+                    )
+                ])
+            ))
+        ]);
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         
@@ -113,9 +546,9 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
             };
             
             if (workflow) {
-                await api.updateWorkflow(workflow.name, workflowData);
+                await window.api.updateWorkflow(workflow.name, workflowData);
             } else {
-                await api.createWorkflow(workflowData);
+                await window.api.createWorkflow(workflowData);
             }
             await onSave();
             onClose();
@@ -552,7 +985,10 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                             placeholder: 'Describe what this agent should do with the input',
                                             style: { minHeight: '60px' }
                                         })
-                                    ])
+                                    ]),
+
+                                    // Tool parameters section
+                                    renderToolParameters(step, index)
                                 ])
                             )
                     ]),

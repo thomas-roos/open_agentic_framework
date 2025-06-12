@@ -131,6 +131,9 @@ class WorkflowStep(BaseModel):
     context_key: Optional[str] = Field(
         default=None, description="Key to store result in context"
     )
+    use_previous_output: Optional[bool] = Field(
+        default=False, description="Whether to use previous step output as input"
+    )
 
 class WorkflowDefinition(BaseModel):
     """Model for creating a new workflow"""
@@ -138,12 +141,17 @@ class WorkflowDefinition(BaseModel):
     description: str = Field(..., description="Workflow description")
     steps: List[WorkflowStep] = Field(..., description="List of workflow steps")
     enabled: bool = Field(default=True, description="Whether the workflow is enabled")
+    input_schema: Optional[Dict[str, Any]] = Field(
+        default=None, 
+        description="JSON schema defining workflow input parameters"
+    )
 
 class WorkflowUpdate(BaseModel):
     """Model for updating an existing workflow"""
     description: Optional[str] = None
     steps: Optional[List[WorkflowStep]] = None
     enabled: Optional[bool] = None
+    input_schema: Optional[Dict[str, Any]] = None
 
 class WorkflowInfo(BaseModel):
     """Model for workflow information response"""
@@ -154,6 +162,7 @@ class WorkflowInfo(BaseModel):
     enabled: bool
     created_at: datetime
     updated_at: datetime
+    input_schema: Optional[Dict[str, Any]] = None
 
 class WorkflowExecutionRequest(BaseModel):
     """Model for workflow execution request"""
