@@ -1,4 +1,93 @@
-// js/components/Scheduling.js - Enhanced Scheduling Component with Recurring Task Support
+// js/components/Scheduling.js - Fixed timezone display
+
+// Live Time Display Component
+const LiveTimeDisplay = () => {
+    const { useState, useEffect } = React;
+    const [currentTime, setCurrentTime] = useState(new Date());
+
+    useEffect(() => {
+        // Update time every second
+        const interval = setInterval(() => {
+            setCurrentTime(new Date());
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, []);
+
+    const formatTimeDisplay = (date) => {
+        const utcTime = date.toISOString();
+        const localTime = date.toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        });
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        
+        return {
+            utc: utcTime.slice(0, 19) + 'Z', // Format: 2024-01-15T14:30:25Z
+            local: localTime,
+            timezone: timezone
+        };
+    };
+
+    const timeInfo = formatTimeDisplay(currentTime);
+
+    return React.createElement('div', {
+        style: {
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            fontSize: '11px',
+            color: '#64748b',
+            fontFamily: 'monospace',
+            background: '#f8fafc',
+            padding: '8px 12px',
+            borderRadius: '6px',
+            border: '1px solid #e2e8f0',
+            minWidth: '200px'
+        }
+    }, [
+        React.createElement('div', {
+            key: 'utc-time',
+            style: { 
+                fontWeight: '600',
+                marginBottom: '2px',
+                color: '#374151'
+            }
+        }, [
+            React.createElement('span', {
+                key: 'label',
+                style: { color: '#6b7280', marginRight: '6px' }
+            }, 'UTC:'),
+            timeInfo.utc
+        ]),
+        React.createElement('div', {
+            key: 'local-time',
+            style: { 
+                fontWeight: '500',
+                color: '#1f2937'
+            }
+        }, [
+            React.createElement('span', {
+                key: 'label',
+                style: { color: '#6b7280', marginRight: '6px' }
+            }, 'Local:'),
+            timeInfo.local
+        ]),
+        React.createElement('div', {
+            key: 'timezone',
+            style: { 
+                fontSize: '10px',
+                marginTop: '2px',
+                color: '#9ca3af'
+            }
+        }, `(${timeInfo.timezone})`)
+    ]);
+};
 
 const Scheduling = () => {
     const { useState, useEffect } = React;
@@ -111,12 +200,78 @@ const Scheduling = () => {
         }, statusInfo.text);
     };
 
-    const formatDateTime = (dateString) => {
+    // FIXED: Proper timezone-aware date formatting
+    const formatDateTime = (dateString, options = {}) => {
         if (!dateString) return 'N/A';
+        
         try {
-            return new Date(dateString).toLocaleString();
-        } catch {
+            const utcDate = new Date(dateString);
+            
+            // Check if date is valid
+            if (isNaN(utcDate.getTime())) {
+                console.warn('Invalid date string:', dateString);
+                return dateString;
+            }
+            
+            // Format options
+            const formatOptions = {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true,
+                ...options
+            };
+            
+            // Convert UTC to local time and format
+            const localString = utcDate.toLocaleString(undefined, formatOptions);
+            
+            // Add timezone info if requested
+            if (options.showTimezone) {
+                const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                return `${localString} (${timezone})`;
+            }
+            
+            return localString;
+            
+        } catch (error) {
+            console.error('Error formatting date:', error, dateString);
             return dateString;
+        }
+    };
+
+    // Enhanced date formatting with relative time
+    const formatDateTimeWithRelative = (dateString) => {
+        if (!dateString) return 'N/A';
+        
+        try {
+            const utcDate = new Date(dateString);
+            const now = new Date();
+            const diffMs = utcDate.getTime() - now.getTime();
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMins / 60);
+            const diffDays = Math.floor(diffHours / 24);
+            
+            let relativeText = '';
+            if (Math.abs(diffMs) < 60000) { // Less than 1 minute
+                relativeText = diffMs > 0 ? 'in <1min' : '<1min ago';
+            } else if (Math.abs(diffMins) < 60) { // Less than 1 hour
+                relativeText = diffMins > 0 ? `in ${diffMins}m` : `${Math.abs(diffMins)}m ago`;
+            } else if (Math.abs(diffHours) < 24) { // Less than 1 day
+                const mins = Math.abs(diffMins % 60);
+                relativeText = diffHours > 0 ? 
+                    `in ${diffHours}h ${mins}m` : 
+                    `${Math.abs(diffHours)}h ${mins}m ago`;
+            } else { // Days
+                relativeText = diffDays > 0 ? `in ${diffDays}d` : `${Math.abs(diffDays)}d ago`;
+            }
+            
+            const localString = formatDateTime(dateString);
+            return `${localString} (${relativeText})`;
+            
+        } catch (error) {
+            return formatDateTime(dateString);
         }
     };
 
@@ -218,7 +373,28 @@ const Scheduling = () => {
                 key: 'content',
                 className: 'card-content' 
             }, [
-                // Task Filter Tabs
+                // Current Time Display (for reference)
+                React.createElement('div', {
+                    key: 'current-time',
+                    style: {
+                        padding: '8px 12px',
+                        background: '#f8fafc',
+                        borderRadius: '6px',
+                        marginBottom: '16px',
+                        fontSize: '12px',
+                        color: '#64748b',
+                        border: '1px solid #e2e8f0'
+                    }
+                }, [
+                    React.createElement('i', {
+                        key: 'icon',
+                        className: 'fas fa-clock',
+                        style: { marginRight: '6px' }
+                    }),
+                    `Current time: ${formatDateTime(new Date().toISOString(), { showTimezone: true })}`
+                ]),
+
+                // Task Filter Tabs with Time Display
                 React.createElement('div', {
                     key: 'filters',
                     style: { 
@@ -228,22 +404,37 @@ const Scheduling = () => {
                     }
                 }, [
                     React.createElement('div', {
-                        key: 'filter-buttons',
-                        style: { display: 'flex', gap: '8px', flexWrap: 'wrap' }
+                        key: 'filter-header',
+                        style: { 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center',
+                            marginBottom: '12px',
+                            flexWrap: 'wrap',
+                            gap: '16px'
+                        }
                     }, [
-                        { key: 'all', label: 'All Tasks', count: scheduledTasks.length },
-                        { key: 'one-time', label: 'One-time', count: scheduledTasks.filter(t => !t.is_recurring).length },
-                        { key: 'recurring', label: 'Recurring', count: scheduledTasks.filter(t => t.is_recurring).length },
-                        { key: 'active', label: 'Active', count: scheduledTasks.filter(t => t.enabled).length },
-                        { key: 'disabled', label: 'Disabled', count: scheduledTasks.filter(t => !t.enabled).length }
-                    ].map(filter => 
-                        React.createElement('button', {
-                            key: filter.key,
-                            className: `btn ${filterType === filter.key ? 'btn-primary' : 'btn-secondary'}`,
-                            onClick: () => setFilterType(filter.key),
-                            style: { fontSize: '12px' }
-                        }, `${filter.label} (${filter.count})`)
-                    ))
+                        React.createElement('div', {
+                            key: 'filter-buttons',
+                            style: { display: 'flex', gap: '8px', flexWrap: 'wrap' }
+                        }, [
+                            { key: 'all', label: 'All Tasks', count: scheduledTasks.length },
+                            { key: 'one-time', label: 'One-time', count: scheduledTasks.filter(t => !t.is_recurring).length },
+                            { key: 'recurring', label: 'Recurring', count: scheduledTasks.filter(t => t.is_recurring).length },
+                            { key: 'active', label: 'Active', count: scheduledTasks.filter(t => t.enabled).length },
+                            { key: 'disabled', label: 'Disabled', count: scheduledTasks.filter(t => !t.enabled).length }
+                        ].map(filter => 
+                            React.createElement('button', {
+                                key: filter.key,
+                                className: `btn ${filterType === filter.key ? 'btn-primary' : 'btn-secondary'}`,
+                                onClick: () => setFilterType(filter.key),
+                                style: { fontSize: '12px' }
+                            }, `${filter.label} (${filter.count})`)
+                        )),
+                        
+                        // Live Time Display
+                        React.createElement(LiveTimeDisplay, { key: 'live-time' })
+                    ])
                 ]),
 
                 // Statistics (if available)
@@ -394,7 +585,7 @@ const Scheduling = () => {
                                 }, [
                                     React.createElement('div', { 
                                         key: 'scheduled' 
-                                    }, `⏰ ${task.is_recurring ? 'First execution' : 'Scheduled'}: ${formatDateTime(task.scheduled_time)}`),
+                                    }, `⏰ ${task.is_recurring ? 'First execution' : 'Scheduled'}: ${formatDateTimeWithRelative(task.scheduled_time)}`),
                                     
                                     task.is_recurring && React.createElement('div', { 
                                         key: 'pattern' 
@@ -402,7 +593,7 @@ const Scheduling = () => {
                                     
                                     task.is_recurring && task.next_execution && React.createElement('div', { 
                                         key: 'next' 
-                                    }, `⏭️ Next execution: ${formatDateTime(task.next_execution)} (${getNextExecutionDisplay(task)})`),
+                                    }, `⏭️ Next execution: ${formatDateTimeWithRelative(task.next_execution)}`),
                                     
                                     task.is_recurring && React.createElement('div', { 
                                         key: 'executions' 
@@ -410,7 +601,7 @@ const Scheduling = () => {
                                     
                                     task.last_execution && React.createElement('div', { 
                                         key: 'last' 
-                                    }, `✅ Last: ${formatDateTime(task.last_execution)}`),
+                                    }, `✅ Last: ${formatDateTimeWithRelative(task.last_execution)}`),
                                     
                                     task.result && !task.is_recurring && React.createElement('div', { 
                                         key: 'result',
@@ -584,7 +775,7 @@ const Scheduling = () => {
                                     key: 'details',
                                     style: { fontSize: '12px', color: '#64748b' }
                                 }, [
-                                    React.createElement('div', { key: 'time' }, `🕐 ${formatDateTime(execution.execution_time)}`),
+                                    React.createElement('div', { key: 'time' }, `🕐 ${formatDateTimeWithRelative(execution.execution_time)}`),
                                     execution.duration_seconds && React.createElement('div', { key: 'duration' }, `⏱️ Duration: ${execution.duration_seconds}s`),
                                     execution.result && React.createElement('div', { 
                                         key: 'result',
