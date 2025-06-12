@@ -33,6 +33,7 @@ class Agent(Base):
     tools = Column(JSON, default=[])
     ollama_model = Column(String, default="llama3")
     enabled = Column(Boolean, default=True)
+    input_schema = Column(JSON, default=None)
     tool_configs = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -59,6 +60,7 @@ class Workflow(Base):
     description = Column(Text, nullable=False)
     steps = Column(JSON, nullable=False)
     enabled = Column(Boolean, default=True)
+    input_schema = Column(JSON, default=None)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -306,7 +308,8 @@ class MemoryManager:
         name: str, 
         description: str, 
         steps: List[Dict[str, Any]],
-        enabled: bool = True
+        enabled: bool = True,
+        input_schema: Dict[str, Any] = None
     ) -> int:
         """Register a new workflow"""
         with self.get_session() as session:
@@ -314,7 +317,8 @@ class MemoryManager:
                 name=name,
                 description=description,
                 steps=steps,
-                enabled=enabled
+                enabled=enabled,
+                input_schema=input_schema
             )
             session.add(workflow)
             session.commit()
@@ -333,6 +337,7 @@ class MemoryManager:
                     "description": workflow.description,
                     "steps": workflow.steps,
                     "enabled": workflow.enabled,
+                    "input_schema": workflow.input_schema,
                     "created_at": workflow.created_at,
                     "updated_at": workflow.updated_at
                 }
@@ -349,6 +354,7 @@ class MemoryManager:
                     "description": workflow.description,
                     "steps": workflow.steps,
                     "enabled": workflow.enabled,
+                    "input_schema": workflow.input_schema,
                     "created_at": workflow.created_at,
                     "updated_at": workflow.updated_at
                 }
@@ -361,11 +367,11 @@ class MemoryManager:
             workflow = session.query(Workflow).filter(Workflow.name == name).first()
             if not workflow:
                 raise ValueError(f"Workflow {name} not found")
-            
+        
             for key, value in updates.items():
                 if hasattr(workflow, key):
                     setattr(workflow, key, value)
-            
+        
             workflow.updated_at = datetime.utcnow()
             session.commit()
             logger.info(f"Updated workflow: {name}")

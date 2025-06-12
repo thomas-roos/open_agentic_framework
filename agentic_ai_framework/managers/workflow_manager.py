@@ -25,81 +25,66 @@ class WorkflowManager:
         workflow_name: str, 
         context: Dict[str, Any] = None
     ) -> Dict[str, Any]:
-        """Execute workflow with extensive debugging"""
+        """Execute workflow with input schema support"""
         context = context or {}
-        
+    
         workflow = self.memory_manager.get_workflow(workflow_name)
         if not workflow:
             raise ValueError(f"Workflow {workflow_name} not found")
-        
+
         if not workflow.get("enabled", True):
             raise ValueError(f"Workflow {workflow_name} is disabled")
-        
+
         logger.info(f"Starting workflow {workflow_name} with initial context: {context}")
-        
+    
+        # NEW: Validate input against schema if present
+        input_schema = workflow.get("input_schema")
+        if input_schema:
+            validation_error = self._validate_input_schema(input_schema, context)
+            if validation_error:
+                raise ValueError(f"Input validation failed: {validation_error}")
+            logger.info("Input validation passed")
+    
         results = []
         workflow_context = context.copy()
-        
+        previous_step_result = None  # NEW: Track previous step result
+    
         for i, step in enumerate(workflow["steps"]):
             try:
                 logger.info(f"=== STEP {i+1}/{len(workflow['steps'])} ===")
                 logger.info(f"Step definition: {step}")
                 logger.info(f"Current context keys: {list(workflow_context.keys())}")
-                logger.info(f"Current context: {workflow_context}")
-                
+            
+                # NEW: Handle input source for this step
+                step_input_context = self._prepare_step_input(
+                    step, workflow_context, previous_step_result, i
+                )
+            
                 # Resolve variables in step parameters
-                resolved_step = self._resolve_variables(step, workflow_context)
+                resolved_step = self._resolve_variables(step, step_input_context)
                 logger.info(f"Resolved step: {resolved_step}")
-                
+            
                 if resolved_step["type"] == "agent":
-                    result = await self._execute_agent_step(resolved_step, workflow_context)
-                    logger.info(f"Agent result type: {type(result)}")
-                    logger.info(f"Agent result (raw): {repr(result)}")
-                    
-                    # Enhanced JSON parsing with debugging
-                    original_result = result
-                    try:
-                        if isinstance(result, str):
-                            # Try to extract JSON from the response
-                            json_match = re.search(r'\{.*\}', result.strip(), re.DOTALL)
-                            if json_match:
-                                json_str = json_match.group(0)
-                                logger.info(f"Extracted JSON string: {json_str}")
-                                parsed_result = json.loads(json_str)
-                                logger.info(f"Successfully parsed JSON: {parsed_result}")
-                                result = parsed_result
-                            elif result.strip().startswith('{') and result.strip().endswith('}'):
-                                parsed_result = json.loads(result.strip())
-                                logger.info(f"Successfully parsed full response as JSON: {parsed_result}")
-                                result = parsed_result
-                            else:
-                                logger.info("Agent result doesn't look like JSON, keeping as string")
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse agent result as JSON: {e}")
-                        logger.warning(f"Original result: {repr(original_result)}")
-                        # Keep original result
-                        result = original_result
-                    
+                    result = await self._execute_agent_step(resolved_step, step_input_context)
+                    # Try to parse JSON from agent response
+                    result = self._parse_agent_result(result)
+                
                 elif resolved_step["type"] == "tool":
-                    result = await self._execute_tool_step(resolved_step, workflow_context)
+                    result = await self._execute_tool_step(resolved_step, step_input_context)
                     logger.info(f"Tool result type: {type(result)}")
                     logger.info(f"Tool result: {result}")
                 else:
                     raise ValueError(f"Unknown step type: {resolved_step['type']}")
-                
+            
                 # Store result in context if context_key is specified
                 if resolved_step.get("context_key"):
                     context_key = resolved_step["context_key"]
                     workflow_context[context_key] = result
                     logger.info(f"Stored result in context key '{context_key}'")
-                    logger.info(f"Updated context keys: {list(workflow_context.keys())}")
-                    
-                    # Debug: Show what's actually stored
-                    if isinstance(result, dict):
-                        logger.info(f"Stored dict with keys: {list(result.keys())}")
-                        for key, value in result.items():
-                            logger.info(f"  {context_key}.{key} = {repr(value)}")
-                
+            
+                # Update previous step result
+                previous_step_result = result
+            
                 results.append({
                     "step": i + 1,
                     "type": resolved_step["type"],
@@ -107,13 +92,12 @@ class WorkflowManager:
                     "result": result,
                     "context_key": resolved_step.get("context_key")
                 })
-                
+            
                 logger.info(f"Step {i+1} completed successfully")
-                
+            
             except Exception as e:
                 error_msg = f"Error in workflow step {i+1}: {e}"
                 logger.error(error_msg)
-                logger.error(f"Context at error: {workflow_context}")
                 results.append({
                     "step": i + 1,
                     "type": step["type"],
@@ -121,7 +105,7 @@ class WorkflowManager:
                     "error": str(e)
                 })
                 raise Exception(f"Workflow {workflow_name} failed at step {i+1}: {e}")
-        
+    
         return {
             "workflow_name": workflow_name,
             "status": "completed",
@@ -129,6 +113,107 @@ class WorkflowManager:
             "results": results,
             "final_context": workflow_context
         }
+    
+    def _validate_input_schema(self, input_schema: Dict[str, Any], input_data: Dict[str, Any]) -> Optional[str]:
+        """Validate input data against schema"""
+        try:
+            # Check required fields
+            required_fields = input_schema.get("required", [])
+            for field in required_fields:
+                if field not in input_data:
+                    return f"Required field '{field}' is missing"
+            
+                value = input_data[field]
+                if value is None or (isinstance(value, str) and value.strip() == ""):
+                    return f"Required field '{field}' cannot be empty"
+        
+            # Basic type validation
+            properties = input_schema.get("properties", {})
+            for field_name, field_schema in properties.items():
+                if field_name in input_data:
+                    expected_type = field_schema.get("type")
+                    value = input_data[field_name]
+                
+                    if expected_type and not self._validate_field_type(value, expected_type):
+                        return f"Field '{field_name}' should be of type {expected_type}"
+        
+            return None
+        
+        except Exception as e:
+            return f"Validation error: {str(e)}"
+
+    def _validate_field_type(self, value: Any, expected_type: str) -> bool:
+        """Validate field type against JSON schema type"""
+        type_mapping = {
+            "string": str,
+            "integer": int,
+            "number": (int, float),
+            "boolean": bool,
+            "array": list,
+            "object": dict
+        }
+    
+        if expected_type in type_mapping:
+            expected_python_type = type_mapping[expected_type]
+            return isinstance(value, expected_python_type)
+    
+        return True
+    
+    def _parse_agent_result(self, result: str) -> Any:
+        """Parse agent result, trying to extract JSON if possible"""
+        logger.info(f"Agent result type: {type(result)}")
+        logger.info(f"Agent result (raw): {repr(result)}")
+    
+        original_result = result
+        try:
+            if isinstance(result, str):
+                # Try to extract JSON from the response
+                json_match = re.search(r'\{.*\}', result.strip(), re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                    logger.info(f"Extracted JSON string: {json_str}")
+                    parsed_result = json.loads(json_str)
+                    logger.info(f"Successfully parsed JSON: {parsed_result}")
+                    return parsed_result
+                elif result.strip().startswith('{') and result.strip().endswith('}'):
+                    parsed_result = json.loads(result.strip())
+                    logger.info(f"Successfully parsed full response as JSON: {parsed_result}")
+                    return parsed_result
+                else:
+                    logger.info("Agent result doesn't look like JSON, keeping as string")
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse agent result as JSON: {e}")
+            logger.warning(f"Original result: {repr(original_result)}")
+    
+        return original_result
+    
+    def _prepare_step_input(
+        self, 
+        step: Dict[str, Any], 
+        workflow_context: Dict[str, Any], 
+        previous_step_result: Any, 
+        step_index: int
+    ) -> Dict[str, Any]:
+        """Prepare input context for a step based on its configuration"""
+    
+        use_previous_output = step.get("use_previous_output", False)
+    
+        if use_previous_output and step_index > 0 and previous_step_result is not None:
+            logger.info(f"Step {step_index + 1} using previous step output as input")
+        
+            # If previous result is a dict, merge it with workflow context
+            if isinstance(previous_step_result, dict):
+                step_context = {**workflow_context, **previous_step_result}
+            else:
+                # If previous result is not a dict, put it in a special key
+                step_context = workflow_context.copy()
+                step_context["previous_result"] = previous_step_result
+        
+            logger.info(f"Step input context: {step_context}")
+            return step_context
+        else:
+            logger.info(f"Step {step_index + 1} using workflow input context")
+            return workflow_context
     
     async def _execute_agent_step(
         self, 

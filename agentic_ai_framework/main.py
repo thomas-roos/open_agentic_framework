@@ -818,7 +818,8 @@ async def create_workflow(workflow_def: WorkflowDefinition):
                 "name": step.name,
                 "task": step.task,
                 "parameters": step.parameters or {},
-                "context_key": step.context_key
+                "context_key": step.context_key,
+                "use_previous_output": getattr(step, 'use_previous_output', False)
             }
             steps_dict.append(step_dict)
         
@@ -826,7 +827,8 @@ async def create_workflow(workflow_def: WorkflowDefinition):
             name=workflow_def.name,
             description=workflow_def.description,
             steps=steps_dict,
-            enabled=workflow_def.enabled
+            enabled=workflow_def.enabled,
+            input_schema=workflow_def.input_schema
         )
         return WorkflowResponse(id=workflow_id, name=workflow_def.name, message="Workflow created successfully")
     except Exception as e:
@@ -866,19 +868,93 @@ async def delete_workflow(workflow_name: str):
 
 @app.post("/workflows/{workflow_name}/execute", response_model=WorkflowExecutionResponse)
 async def execute_workflow(workflow_name: str, request: WorkflowExecutionRequest):
-    """Execute a workflow"""
+    """Execute a workflow with input validation"""
     try:
+        # Get workflow to check input schema
+        workflow = memory_manager.get_workflow(workflow_name)
+        if not workflow:
+            raise HTTPException(status_code=404, detail=f"Workflow {workflow_name} not found")
+        
+        if not workflow.get("enabled", True):
+            raise HTTPException(status_code=400, detail=f"Workflow {workflow_name} is disabled")
+        
+        # Validate input against schema if present
+        input_context = request.context or {}
+        if workflow.get("input_schema"):
+            validation_error = validate_workflow_input(workflow["input_schema"], input_context)
+            if validation_error:
+                raise HTTPException(status_code=400, detail=f"Input validation failed: {validation_error}")
+        
         result = await workflow_manager.execute_workflow(
-            workflow_name, request.context or {}
+            workflow_name, input_context
         )
         return WorkflowExecutionResponse(
             workflow_name=workflow_name,
-            context=request.context or {},
+            context=input_context,
             result=result,
             timestamp=datetime.utcnow()
         )
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error executing workflow {workflow_name}: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+def validate_workflow_input(input_schema: Dict[str, Any], input_data: Dict[str, Any]) -> Optional[str]:
+    """
+    Validate workflow input against schema
+    
+    Args:
+        input_schema: JSON schema for input validation
+        input_data: Actual input data
+        
+    Returns:
+        Error message if validation fails, None if valid
+    """
+    try:
+        # Check required fields
+        required_fields = input_schema.get("required", [])
+        for field in required_fields:
+            if field not in input_data:
+                return f"Required field '{field}' is missing"
+            
+            # Check for None or empty values
+            value = input_data[field]
+            if value is None or (isinstance(value, str) and value.strip() == ""):
+                return f"Required field '{field}' cannot be empty"
+        
+        # Basic type validation
+        properties = input_schema.get("properties", {})
+        for field_name, field_schema in properties.items():
+            if field_name in input_data:
+                expected_type = field_schema.get("type")
+                value = input_data[field_name]
+                
+                if expected_type and not _validate_field_type(value, expected_type):
+                    return f"Field '{field_name}' should be of type {expected_type}"
+        
+        return None  # Validation passed
+        
+    except Exception as e:
+        return f"Validation error: {str(e)}"
+
+def _validate_field_type(value: Any, expected_type: str) -> bool:
+    """Validate if value matches expected JSON schema type"""
+    type_mapping = {
+        "string": str,
+        "integer": int,
+        "number": (int, float),
+        "boolean": bool,
+        "array": list,
+        "object": dict,
+        "null": type(None)
+    }
+    
+    if expected_type in type_mapping:
+        expected_python_type = type_mapping[expected_type]
+        return isinstance(value, expected_python_type)
+    
+    return True
 
 # Scheduling endpoints (unchanged)
 @app.post("/schedule", response_model=ScheduleResponse)
