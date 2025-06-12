@@ -1,21 +1,20 @@
 """
-managers/memory_manager.py - Enhanced Database Management with Memory Cleanup
+managers/memory_manager.py - Enhanced Database Management with Recurring Tasks
 
-Added memory management features:
-- Clear all agent memory
-- Clear specific agent memory  
-- Cleanup old memory entries (keep last N)
-- Memory usage statistics
-- Automatic memory limits
+Added recurring task support:
+- Database schema updates for recurring schedules
+- Cron and simple pattern support
+- Execution tracking and failure handling
 """
 
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, JSON, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import json
 import logging
+from croniter import croniter
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +75,7 @@ class MemoryEntry(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
 class ScheduledTask(Base):
-    """SQLAlchemy model for scheduled tasks"""
+    """SQLAlchemy model for scheduled tasks with recurring support"""
     __tablename__ = "scheduled_tasks"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -86,12 +85,37 @@ class ScheduledTask(Base):
     task_description = Column(Text, nullable=True)
     scheduled_time = Column(DateTime, nullable=False, index=True)
     context = Column(JSON, default={})
-    status = Column(String, default="pending")  # pending, completed, failed
+    status = Column(String, default="pending")  # pending, completed, failed, disabled
     result = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # NEW: Recurring task fields
+    is_recurring = Column(Boolean, default=False)
+    recurrence_pattern = Column(String, nullable=True)  # cron expression or simple pattern
+    recurrence_type = Column(String, nullable=True)  # 'cron' or 'simple'
+    next_execution = Column(DateTime, nullable=True, index=True)
+    last_execution = Column(DateTime, nullable=True)
+    max_executions = Column(Integer, nullable=True)  # Optional limit
+    execution_count = Column(Integer, default=0)
+    failure_count = Column(Integer, default=0)
+    max_failures = Column(Integer, default=3)  # Stop after N failures
+    enabled = Column(Boolean, default=True)
+
+class TaskExecution(Base):
+    """SQLAlchemy model for tracking individual task executions"""
+    __tablename__ = "task_executions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scheduled_task_id = Column(Integer, nullable=False, index=True)
+    execution_time = Column(DateTime, default=datetime.utcnow)
+    status = Column(String, nullable=False)  # completed, failed
+    result = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    execution_metadata = Column(JSON, default={})
 
 class MemoryManager:
-    """Enhanced memory manager with cleanup capabilities"""
+    """Enhanced memory manager with recurring task support"""
     
     def __init__(self, database_path: str):
         """
@@ -103,18 +127,18 @@ class MemoryManager:
         self.database_path = database_path
         self.engine = create_engine(f"sqlite:///{database_path}")
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
-        logger.info(f"Initialized enhanced memory manager with database: {database_path}")
+        logger.info(f"Initialized enhanced memory manager with recurring tasks: {database_path}")
     
     def initialize_database(self):
         """Create all database tables"""
         Base.metadata.create_all(bind=self.engine)
-        logger.info("Database tables created successfully")
+        logger.info("Database tables created successfully with recurring task support")
     
     def get_session(self) -> Session:
         """Get a database session"""
         return self.SessionLocal()
     
-    # Agent Management Methods (existing, unchanged)
+    # Agent Management Methods (unchanged)
     def register_agent(
         self, 
         name: str, 
@@ -212,7 +236,7 @@ class MemoryManager:
             session.commit()
             logger.info(f"Deleted agent and memory: {name}")
     
-    # Tool Management Methods (existing, unchanged)
+    # Tool Management Methods (unchanged)
     def register_tool(
         self, 
         name: str, 
@@ -302,7 +326,7 @@ class MemoryManager:
             session.commit()
             logger.info(f"Deleted tool: {name}")
     
-    # Workflow Management Methods (existing, unchanged)
+    # Workflow Management Methods (unchanged)
     def register_workflow(
         self, 
         name: str, 
@@ -386,7 +410,7 @@ class MemoryManager:
             session.commit()
             logger.info(f"Deleted workflow: {name}")
     
-    # ENHANCED: Memory Management Methods with Cleanup
+    # Memory Management Methods (unchanged)
     def add_memory_entry(
         self, 
         agent_name: str, 
@@ -427,7 +451,7 @@ class MemoryManager:
                 for memory in reversed(memories)  # Return in chronological order
             ]
     
-    # NEW: Memory cleanup methods
+    # Memory cleanup methods (unchanged)
     def clear_agent_memory(self, agent_name: str):
         """Clear all memory entries for a specific agent"""
         with self.get_session() as session:
@@ -510,8 +534,6 @@ class MemoryManager:
     
     def cleanup_old_memory_entries(self, days_to_keep: int = 7):
         """Remove memory entries older than specified days"""
-        from datetime import timedelta
-        
         cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
         
         with self.get_session() as session:
@@ -524,7 +546,7 @@ class MemoryManager:
             logger.info(f"Cleaned up {deleted_count} memory entries older than {days_to_keep} days")
             return deleted_count
     
-    # Scheduled Task Management Methods (existing, unchanged)
+    # ENHANCED: Scheduled Task Management with Recurring Support
     def schedule_task(
         self,
         task_type: str,
@@ -532,36 +554,79 @@ class MemoryManager:
         agent_name: str = None,
         workflow_name: str = None,
         task_description: str = None,
-        context: Dict[str, Any] = None
+        context: Dict[str, Any] = None,
+        is_recurring: bool = False,
+        recurrence_pattern: str = None,
+        recurrence_type: str = "simple",
+        max_executions: int = None,
+        max_failures: int = 3
     ) -> int:
-        """Schedule a task for execution"""
+        """Schedule a task for execution with optional recurring support"""
         with self.get_session() as session:
+            # Calculate next execution time for recurring tasks
+            next_execution = None
+            if is_recurring and recurrence_pattern:
+                next_execution = self._calculate_next_execution(
+                    scheduled_time, recurrence_pattern, recurrence_type
+                )
+            
             task = ScheduledTask(
                 task_type=task_type,
                 agent_name=agent_name,
                 workflow_name=workflow_name,
                 task_description=task_description,
                 scheduled_time=scheduled_time,
-                context=context or {}
+                context=context or {},
+                is_recurring=is_recurring,
+                recurrence_pattern=recurrence_pattern,
+                recurrence_type=recurrence_type,
+                next_execution=next_execution,
+                max_executions=max_executions,
+                max_failures=max_failures,
+                enabled=True
             )
             session.add(task)
             session.commit()
             session.refresh(task)
-            logger.info(f"Scheduled {task_type} task for {scheduled_time}")
+            
+            log_msg = f"Scheduled {task_type} task for {scheduled_time}"
+            if is_recurring:
+                log_msg += f" (recurring: {recurrence_pattern})"
+            logger.info(log_msg)
             return task.id
     
     def get_pending_scheduled_tasks(self) -> List[Dict[str, Any]]:
-        """Get tasks scheduled for execution"""
+        """Get tasks scheduled for execution (including recurring)"""
         current_time = datetime.utcnow()
         with self.get_session() as session:
-            tasks = (
+            # Get one-time pending tasks
+            one_time_tasks = (
                 session.query(ScheduledTask)
                 .filter(
                     ScheduledTask.scheduled_time <= current_time,
-                    ScheduledTask.status == "pending"
+                    ScheduledTask.status == "pending",
+                    ScheduledTask.is_recurring == False,
+                    ScheduledTask.enabled == True
                 )
                 .all()
             )
+            
+            # Get recurring tasks ready for execution
+            recurring_tasks = (
+                session.query(ScheduledTask)
+                .filter(
+                    ScheduledTask.next_execution <= current_time,
+                    ScheduledTask.is_recurring == True,
+                    ScheduledTask.enabled == True,
+                    (ScheduledTask.max_executions.is_(None) | 
+                     (ScheduledTask.execution_count < ScheduledTask.max_executions)),
+                    ScheduledTask.failure_count < ScheduledTask.max_failures
+                )
+                .all()
+            )
+            
+            all_tasks = one_time_tasks + recurring_tasks
+            
             return [
                 {
                     "id": task.id,
@@ -570,9 +635,12 @@ class MemoryManager:
                     "workflow_name": task.workflow_name,
                     "task_description": task.task_description,
                     "scheduled_time": task.scheduled_time,
-                    "context": task.context
+                    "context": task.context,
+                    "is_recurring": task.is_recurring,
+                    "recurrence_pattern": task.recurrence_pattern,
+                    "execution_count": task.execution_count
                 }
-                for task in tasks
+                for task in all_tasks
             ]
     
     def get_all_scheduled_tasks(self) -> List[Dict[str, Any]]:
@@ -590,28 +658,259 @@ class MemoryManager:
                     "context": task.context,
                     "status": task.status,
                     "result": task.result,
-                    "created_at": task.created_at
+                    "created_at": task.created_at,
+                    "is_recurring": task.is_recurring,
+                    "recurrence_pattern": task.recurrence_pattern,
+                    "recurrence_type": task.recurrence_type,
+                    "next_execution": task.next_execution,
+                    "last_execution": task.last_execution,
+                    "execution_count": task.execution_count,
+                    "failure_count": task.failure_count,
+                    "max_executions": task.max_executions,
+                    "max_failures": task.max_failures,
+                    "enabled": task.enabled
                 }
                 for task in tasks
             ]
     
     def update_scheduled_task_status(self, task_id: int, status: str, result: str = None):
-        """Update scheduled task status"""
+        """Update scheduled task status and handle recurring logic"""
         with self.get_session() as session:
             task = session.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
-            if task:
-                task.status = status
-                if result:
+            if not task:
+                logger.error(f"Task {task_id} not found")
+                return
+            
+            execution_time = datetime.utcnow()
+            
+            # Create execution record
+            execution = TaskExecution(
+                scheduled_task_id=task_id,
+                execution_time=execution_time,
+                status=status,
+                result=result,
+                error_message=result if status == "failed" else None
+            )
+            session.add(execution)
+            
+            # Update task execution count and last execution
+            task.execution_count += 1
+            task.last_execution = execution_time
+            
+            if status == "completed":
+                task.failure_count = 0  # Reset failure count on success
+                if not task.is_recurring:
+                    task.status = "completed"
                     task.result = result
-                session.commit()
-                logger.info(f"Updated task {task_id} status to {status}")
+                else:
+                    # Calculate next execution for recurring task
+                    if (task.max_executions is None or 
+                        task.execution_count < task.max_executions):
+                        next_exec = self._calculate_next_execution(
+                            execution_time, 
+                            task.recurrence_pattern, 
+                            task.recurrence_type
+                        )
+                        task.next_execution = next_exec
+                        logger.info(f"Recurring task {task_id} scheduled for next execution: {next_exec}")
+                    else:
+                        task.enabled = False
+                        task.status = "completed"
+                        logger.info(f"Recurring task {task_id} reached max executions ({task.max_executions})")
+            
+            elif status == "failed":
+                task.failure_count += 1
+                if not task.is_recurring:
+                    task.status = "failed"
+                    task.result = result
+                else:
+                    # Check if we should disable due to too many failures
+                    if task.failure_count >= task.max_failures:
+                        task.enabled = False
+                        task.status = "failed"
+                        logger.error(f"Recurring task {task_id} disabled after {task.failure_count} failures")
+                    else:
+                        # Still try next execution for recurring task
+                        next_exec = self._calculate_next_execution(
+                            execution_time,
+                            task.recurrence_pattern,
+                            task.recurrence_type
+                        )
+                        task.next_execution = next_exec
+                        logger.warning(f"Recurring task {task_id} failed ({task.failure_count}/{task.max_failures}), next attempt: {next_exec}")
+            
+            session.commit()
+            logger.info(f"Updated task {task_id} status to {status}")
     
     def delete_scheduled_task(self, task_id: int):
-        """Delete a scheduled task"""
+        """Delete a scheduled task and its execution history"""
         with self.get_session() as session:
             task = session.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
             if not task:
                 raise ValueError(f"Scheduled task {task_id} not found")
+            
+            # Delete execution history
+            session.query(TaskExecution).filter(TaskExecution.scheduled_task_id == task_id).delete()
+            
+            # Delete the task
             session.delete(task)
             session.commit()
             logger.info(f"Deleted scheduled task: {task_id}")
+    
+    def enable_scheduled_task(self, task_id: int):
+        """Enable a scheduled task"""
+        with self.get_session() as session:
+            task = session.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
+            if not task:
+                raise ValueError(f"Scheduled task {task_id} not found")
+            
+            task.enabled = True
+            if task.is_recurring and task.next_execution is None:
+                # Recalculate next execution
+                task.next_execution = self._calculate_next_execution(
+                    datetime.utcnow(),
+                    task.recurrence_pattern,
+                    task.recurrence_type
+                )
+            session.commit()
+            logger.info(f"Enabled scheduled task: {task_id}")
+    
+    def disable_scheduled_task(self, task_id: int):
+        """Disable a scheduled task"""
+        with self.get_session() as session:
+            task = session.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
+            if not task:
+                raise ValueError(f"Scheduled task {task_id} not found")
+            
+            task.enabled = False
+            session.commit()
+            logger.info(f"Disabled scheduled task: {task_id}")
+    
+    def get_task_executions(self, task_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get execution history for a task"""
+        with self.get_session() as session:
+            executions = (
+                session.query(TaskExecution)
+                .filter(TaskExecution.scheduled_task_id == task_id)
+                .order_by(TaskExecution.execution_time.desc())
+                .limit(limit)
+                .all()
+            )
+            
+            return [
+                {
+                    "id": execution.id,
+                    "execution_time": execution.execution_time,
+                    "status": execution.status,
+                    "result": execution.result,
+                    "error_message": execution.error_message,
+                    "duration_seconds": execution.duration_seconds
+                }
+                for execution in executions
+            ]
+    
+    def _calculate_next_execution(
+        self, 
+        base_time: datetime, 
+        pattern: str, 
+        pattern_type: str
+    ) -> datetime:
+        """Calculate next execution time based on recurrence pattern"""
+        try:
+            if pattern_type == "cron":
+                # Use croniter for cron expressions
+                cron = croniter(pattern, base_time)
+                return cron.get_next(datetime)
+            
+            elif pattern_type == "simple":
+                # Handle simple patterns like "5m", "1h", "1d"
+                return self._parse_simple_pattern(base_time, pattern)
+            
+            else:
+                raise ValueError(f"Unknown recurrence type: {pattern_type}")
+                
+        except Exception as e:
+            logger.error(f"Error calculating next execution: {e}")
+            # Fallback to 1 hour
+            return base_time + timedelta(hours=1)
+    
+    def _parse_simple_pattern(self, base_time: datetime, pattern: str) -> datetime:
+        """Parse simple patterns like '5m', '2h', '1d'"""
+        pattern = pattern.strip().lower()
+        
+        if pattern.endswith('m'):
+            # Minutes
+            minutes = int(pattern[:-1])
+            return base_time + timedelta(minutes=minutes)
+        elif pattern.endswith('h'):
+            # Hours
+            hours = int(pattern[:-1])
+            return base_time + timedelta(hours=hours)
+        elif pattern.endswith('d'):
+            # Days
+            days = int(pattern[:-1])
+            return base_time + timedelta(days=days)
+        else:
+            raise ValueError(f"Invalid simple pattern: {pattern}")
+    
+    def validate_recurrence_pattern(self, pattern: str, pattern_type: str) -> bool:
+        """Validate a recurrence pattern"""
+        try:
+            if pattern_type == "cron":
+                # Test cron expression
+                croniter(pattern)
+                return True
+            elif pattern_type == "simple":
+                # Test simple pattern
+                self._parse_simple_pattern(datetime.utcnow(), pattern)
+                return True
+            else:
+                return False
+        except:
+            return False
+
+    def update_scheduled_task_fields(self, task_id: int, updates: Dict[str, Any]):
+        """Update specific fields of a scheduled task"""
+        with self.get_session() as session:
+            task = session.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
+            if not task:
+                raise ValueError(f"Scheduled task {task_id} not found")
+        
+            # Update allowed fields
+            allowed_fields = [
+                'task_description', 'scheduled_time', 'context', 'is_recurring',
+                'recurrence_pattern', 'recurrence_type', 'max_executions', 
+                'max_failures', 'enabled'
+            ]
+        
+            old_pattern = task.recurrence_pattern
+            old_type = task.recurrence_type
+            old_scheduled = task.scheduled_time
+        
+            for key, value in updates.items():
+                if key in allowed_fields and hasattr(task, key):
+                    setattr(task, key, value)
+        
+            # Recalculate next execution if recurrence or time changed
+            pattern_changed = (
+                updates.get('recurrence_pattern') != old_pattern or
+                updates.get('recurrence_type') != old_type or
+                updates.get('scheduled_time') != old_scheduled
+            )
+        
+            if pattern_changed and task.is_recurring and task.recurrence_pattern:
+                # Use the updated scheduled_time as base for calculation
+                base_time = task.scheduled_time or datetime.utcnow()
+                task.next_execution = self._calculate_next_execution(
+                    base_time,
+                    task.recurrence_pattern,
+                    task.recurrence_type
+                )
+                logger.info(f"Recalculated next execution for task {task_id}: {task.next_execution}")
+            elif not task.is_recurring:
+                # Clear next_execution for non-recurring tasks
+                task.next_execution = None
+        
+            session.commit()
+            logger.info(f"Updated scheduled task: {task_id}")
+            return task_id

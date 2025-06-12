@@ -1,16 +1,18 @@
 """
-models.py - Enhanced Pydantic Data Models
+models.py - Enhanced Pydantic Data Models with Recurring Task Support
 
 Added new models for:
-- Ollama models listing and status
-- Memory management statistics and responses
-- Enhanced configuration with memory settings
+- Recurring task scheduling
+- Task execution tracking
+- Enhanced scheduling with cron and simple patterns
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from enum import Enum
+from datetime import datetime, timezone
+
 
 # Agent Models (existing, unchanged)
 class AgentDefinition(BaseModel):
@@ -183,14 +185,19 @@ class WorkflowResponse(BaseModel):
     name: str
     message: str
 
-# Scheduling Models (existing, unchanged)
+# ENHANCED: Scheduling Models with Recurring Support
 class TaskType(str, Enum):
     """Enumeration of task types"""
     AGENT = "agent"
     WORKFLOW = "workflow"
 
+class RecurrenceType(str, Enum):
+    """Enumeration of recurrence types"""
+    SIMPLE = "simple"
+    CRON = "cron"
+
 class ScheduledTaskDefinition(BaseModel):
-    """Model for creating a scheduled task"""
+    """Model for creating a scheduled task with recurring support"""
     task_type: TaskType = Field(..., description="Type of task to schedule")
     agent_name: Optional[str] = Field(
         default=None, description="Agent name for agent tasks"
@@ -205,9 +212,79 @@ class ScheduledTaskDefinition(BaseModel):
     context: Optional[Dict[str, Any]] = Field(
         default={}, description="Execution context"
     )
+    
+    # Recurring task fields with proper defaults
+    is_recurring: bool = Field(default=False, description="Whether this is a recurring task")
+    recurrence_pattern: Optional[str] = Field(
+        default=None, 
+        description="Recurrence pattern (e.g., '5m', '1h', '0 */6 * * *')"
+    )
+    recurrence_type: Optional[RecurrenceType] = Field(
+        default=RecurrenceType.SIMPLE, 
+        description="Type of recurrence pattern"
+    )
+    max_executions: Optional[int] = Field(
+        default=None, 
+        description="Maximum number of executions (None for unlimited)",
+        ge=1
+    )
+    max_failures: int = Field(
+        default=3, 
+        description="Maximum consecutive failures before disabling",
+        ge=1,
+        le=10
+    )
+
+    @validator('recurrence_pattern')
+    def validate_recurrence_pattern(cls, v, values):
+        """Validate recurrence pattern based on type"""
+        if values.get('is_recurring') and not v:
+            raise ValueError('recurrence_pattern is required for recurring tasks')
+        
+        if v and values.get('recurrence_type') == RecurrenceType.SIMPLE:
+            # Validate simple patterns like "5m", "2h", "1d"
+            import re
+            if not re.match(r'^\d+[mhd]$', v.lower()):
+                raise ValueError('Simple pattern must be in format: number + m/h/d (e.g., "5m", "2h", "1d")')
+        
+        return v
+    
+    @validator('agent_name')
+    def validate_agent_name(cls, v, values):
+        """Validate agent_name is provided for agent tasks"""
+        if values.get('task_type') == TaskType.AGENT and not v:
+            raise ValueError('agent_name is required for agent tasks')
+        return v
+    
+    @validator('workflow_name')
+    def validate_workflow_name(cls, v, values):
+        """Validate workflow_name is provided for workflow tasks"""
+        if values.get('task_type') == TaskType.WORKFLOW and not v:
+            raise ValueError('workflow_name is required for workflow tasks')
+        return v
+
+    class Config:
+        # Allow extra fields for future compatibility
+        extra = "forbid"
+        # Ensure proper JSON serialization
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+class ScheduledTaskUpdate(BaseModel):
+    """Model for updating a scheduled task"""
+    task_description: Optional[str] = None
+    scheduled_time: Optional[datetime] = None
+    context: Optional[Dict[str, Any]] = None
+    is_recurring: Optional[bool] = None
+    recurrence_pattern: Optional[str] = None
+    recurrence_type: Optional[RecurrenceType] = None
+    max_executions: Optional[int] = Field(default=None, ge=1)
+    max_failures: Optional[int] = Field(default=None, ge=1, le=10)
+    enabled: Optional[bool] = None
 
 class ScheduledTaskInfo(BaseModel):
-    """Model for scheduled task information"""
+    """Model for scheduled task information with recurring details"""
     id: int
     task_type: str
     agent_name: Optional[str]
@@ -218,11 +295,34 @@ class ScheduledTaskInfo(BaseModel):
     status: str
     result: Optional[str]
     created_at: datetime
+    
+    # NEW: Recurring task info
+    is_recurring: bool
+    recurrence_pattern: Optional[str]
+    recurrence_type: Optional[str]
+    next_execution: Optional[datetime]
+    last_execution: Optional[datetime]
+    execution_count: int
+    failure_count: int
+    max_executions: Optional[int]
+    max_failures: int
+    enabled: bool
+
+class TaskExecutionInfo(BaseModel):
+    """Model for individual task execution information"""
+    id: int
+    execution_time: datetime
+    status: str
+    result: Optional[str]
+    error_message: Optional[str]
+    duration_seconds: Optional[int]
 
 class ScheduleResponse(BaseModel):
     """Model for schedule operation response"""
     id: int
     message: str
+    is_recurring: bool = False
+    next_execution: Optional[datetime] = None
 
 # Memory Models (existing, unchanged)
 class MemoryEntry(BaseModel):
@@ -241,7 +341,7 @@ class MemoryEntryResponse(BaseModel):
     metadata: Dict[str, Any]
     timestamp: datetime
 
-# NEW: Ollama Models
+# Model Info and Status Models (existing, unchanged)
 class ModelInfo(BaseModel):
     """Model for Ollama model information"""
     name: str = Field(..., description="Model name")
@@ -257,7 +357,7 @@ class ModelsStatusResponse(BaseModel):
     default_model: str = Field(..., description="Default model configured")
     recommended_models: List[str] = Field(..., description="Recommended models for production")
 
-# NEW: Memory Management Models
+# Memory Management Models (existing, unchanged)
 class MemoryStatsResponse(BaseModel):
     """Model for memory statistics response"""
     total_memory_entries: int = Field(..., description="Total memory entries across all agents")
@@ -276,22 +376,20 @@ class MemoryCleanupResponse(BaseModel):
     agents_processed: int = Field(..., description="Number of agents processed")
     kept_entries_per_agent: int = Field(..., description="Number of entries kept per agent")
 
-# Enhanced Configuration Models
+# Enhanced Configuration Models (existing, unchanged)
 class ConfigUpdate(BaseModel):
     """Model for updating configuration"""
     ollama_url: Optional[str] = None
     default_model: Optional[str] = None
     max_agent_iterations: Optional[int] = Field(default=None, ge=1, le=10)
     scheduler_interval: Optional[int] = Field(default=None, ge=30)
-    # NEW: Memory management configuration
     max_agent_memory_entries: Optional[int] = Field(default=None, ge=1, le=100)
     clear_memory_on_startup: Optional[bool] = None
-    memory_cleanup_interval: Optional[int] = Field(default=None, ge=300)  # At least 5 minutes
+    memory_cleanup_interval: Optional[int] = Field(default=None, ge=300)
     memory_retention_days: Optional[int] = Field(default=None, ge=1, le=365)
 
 class ConfigResponse(BaseModel):
     """Model for configuration response"""
-    # Original settings
     ollama_url: str
     default_model: str
     database_path: str
@@ -300,7 +398,6 @@ class ConfigResponse(BaseModel):
     max_agent_iterations: int
     scheduler_interval: int
     tools_directory: str
-    # NEW: Memory management settings
     max_agent_memory_entries: int
     clear_memory_on_startup: bool
     memory_cleanup_interval: int
@@ -313,16 +410,16 @@ class MemoryConfigUpdate(BaseModel):
     memory_cleanup_interval: Optional[int] = Field(default=None, ge=300)
     memory_retention_days: Optional[int] = Field(default=None, ge=1, le=365)
 
-# Enhanced Health Check
+# Enhanced Health Check (existing, unchanged)
 class HealthCheckResponse(BaseModel):
     """Enhanced health check response"""
     status: str = Field(..., description="Overall system status")
     timestamp: datetime = Field(..., description="Health check timestamp")
     ollama_status: bool = Field(..., description="Ollama service status")
     memory_entries: int = Field(..., description="Total memory entries in system")
-    version: str = Field(default="1.1.0", description="Framework version")
+    version: str = Field(default="1.2.0", description="Framework version")
 
-# NEW: Agent Status Model
+# Agent Status Model (existing, unchanged)
 class AgentStatusResponse(BaseModel):
     """Model for detailed agent status"""
     status: str = Field(..., description="Agent status: active, disabled, or not_found")
@@ -345,7 +442,7 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
 
-# NEW: Batch Operations Models
+# Batch Operations Models (existing, unchanged)
 class BatchAgentCleanupRequest(BaseModel):
     """Model for batch agent memory cleanup"""
     agent_names: Optional[List[str]] = Field(default=None, description="Specific agents to cleanup, or all if None")
@@ -358,10 +455,10 @@ class BatchAgentCleanupResponse(BaseModel):
     total_entries_removed: int
     agents_details: Dict[str, int]  # agent_name -> entries_removed
 
-# NEW: System Statistics
+# System Statistics (existing, unchanged)
 class SystemStatsResponse(BaseModel):
     """Model for comprehensive system statistics"""
-    framework_version: str = Field(default="1.1.0")
+    framework_version: str = Field(default="1.2.0")
     uptime_info: Dict[str, Any]
     agents: Dict[str, Any]
     tools: Dict[str, Any] 
@@ -378,3 +475,32 @@ class ModelInstallRequest(BaseModel):
 class ModelDeleteRequest(BaseModel):
     """Model for deleting a model"""
     model_name: str = Field(..., description="Name of the model to delete")
+
+# NEW: Recurring Task Utilities
+class RecurrencePatternHelper(BaseModel):
+    """Helper model for recurrence pattern validation and suggestions"""
+    pattern: str
+    pattern_type: RecurrenceType
+    description: str
+    next_execution_preview: Optional[datetime] = None
+
+class RecurrencePatternSuggestions(BaseModel):
+    """Model for suggesting common recurrence patterns"""
+    simple_patterns: List[RecurrencePatternHelper]
+    cron_patterns: List[RecurrencePatternHelper]
+
+# NEW: Enhanced Task Statistics
+class TaskStatistics(BaseModel):
+    """Model for task execution statistics"""
+    total_tasks: int
+    one_time_tasks: int
+    recurring_tasks: int
+    active_recurring: int
+    disabled_tasks: int
+    completed_tasks: int
+    failed_tasks: int
+    pending_tasks: int
+    total_executions: int
+    successful_executions: int
+    failed_executions: int
+    average_execution_time: Optional[float] = None

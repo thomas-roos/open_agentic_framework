@@ -22,6 +22,8 @@ from managers.agent_manager import AgentManager
 from managers.workflow_manager import WorkflowManager
 from managers.model_warmup_manager import ModelWarmupManager, ModelWarmupStatus
 from pydantic import BaseModel
+from models import ScheduledTaskDefinition, ScheduledTaskUpdate, TaskExecutionInfo, RecurrenceType
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -56,7 +58,7 @@ warmup_manager = ModelWarmupManager(llm_manager, memory_manager, config)
 
 # Enhanced Background scheduler with memory cleanup
 class BackgroundScheduler:
-    """Enhanced background scheduler with memory management"""
+    """Enhanced background scheduler with recurring task support"""
     
     def __init__(self, memory_manager, agent_manager, workflow_manager, config, interval=60):
         self.memory_manager = memory_manager
@@ -66,16 +68,18 @@ class BackgroundScheduler:
         self.interval = interval
         self.running = False
         self._last_memory_cleanup = time.time()
+        self._last_stats_log = time.time()
     
     async def start(self):
-        """Start the background scheduler"""
+        """Start the background scheduler with recurring task support"""
         self.running = True
-        logger.info("Enhanced background scheduler started with memory management")
+        logger.info("Enhanced background scheduler started with recurring task support")
         
         while self.running:
             try:
                 await self._process_pending_tasks()
                 await self._check_memory_cleanup()
+                await self._log_periodic_stats()
                 await asyncio.sleep(self.interval)
             except Exception as e:
                 logger.error(f"Scheduler error: {e}")
@@ -87,38 +91,66 @@ class BackgroundScheduler:
         logger.info("Background scheduler stopped")
     
     async def _process_pending_tasks(self):
-        """Process pending scheduled tasks"""
+        """Process pending scheduled tasks including recurring ones"""
         pending_tasks = self.memory_manager.get_pending_scheduled_tasks()
+        
+        if not pending_tasks:
+            return
+        
+        logger.info(f"Processing {len(pending_tasks)} pending tasks")
         
         for task in pending_tasks:
             try:
-                logger.info(f"Executing scheduled task {task['id']}: {task['task_type']}")
+                task_id = task['id']
+                task_type = task['task_type']
+                is_recurring = task.get('is_recurring', False)
+                execution_count = task.get('execution_count', 0)
                 
-                if task['task_type'] == "agent":
+                logger.info(f"Executing task {task_id} ({task_type})" + 
+                          (f" - execution #{execution_count + 1}" if is_recurring else ""))
+                
+                start_time = time.time()
+                
+                if task_type == "agent":
                     result = await self.agent_manager.execute_agent(
                         task['agent_name'], 
                         task['task_description'],
                         context=task['context'] or {}
                     )
-                elif task['task_type'] == "workflow":
+                elif task_type == "workflow":
                     result = await self.workflow_manager.execute_workflow(
                         task['workflow_name'],
                         context=task['context'] or {}
                     )
                 else:
-                    raise ValueError(f"Unknown task type: {task['task_type']}")
+                    raise ValueError(f"Unknown task type: {task_type}")
                 
+                execution_time = time.time() - start_time
+                
+                # Update task as completed
                 self.memory_manager.update_scheduled_task_status(
-                    task['id'], "completed", str(result)
+                    task_id, "completed", str(result)
                 )
-                logger.info(f"Completed scheduled task {task['id']}")
+                
+                log_msg = f"Completed task {task_id} in {execution_time:.2f}s"
+                if is_recurring:
+                    log_msg += f" (execution #{execution_count + 1})"
+                logger.info(log_msg)
                 
             except Exception as e:
                 error_msg = str(e)
+                execution_count = task.get('execution_count', 0)
+                is_recurring = task.get('is_recurring', False)
+                
+                # Update task as failed
                 self.memory_manager.update_scheduled_task_status(
-                    task['id'], "failed", error_msg
+                    task_id, "failed", error_msg
                 )
-                logger.error(f"Failed scheduled task {task['id']}: {error_msg}")
+                
+                log_msg = f"Failed task {task_id}: {error_msg}"
+                if is_recurring:
+                    log_msg += f" (execution #{execution_count + 1})"
+                logger.error(log_msg)
     
     async def _check_memory_cleanup(self):
         """Check if periodic memory cleanup is needed"""
@@ -143,6 +175,35 @@ class BackgroundScheduler:
             logger.info(f"Completed periodic memory cleanup for {len(agents)} agents")
         except Exception as e:
             logger.error(f"Error during periodic memory cleanup: {e}")
+    
+    async def _log_periodic_stats(self):
+        """Log periodic statistics about tasks and system"""
+        current_time = time.time()
+        
+        # Log stats every hour
+        if current_time - self._last_stats_log >= 3600:
+            try:
+                # Get task statistics
+                all_tasks = self.memory_manager.get_all_scheduled_tasks()
+                
+                recurring_count = sum(1 for task in all_tasks if task.get('is_recurring', False))
+                active_recurring = sum(1 for task in all_tasks 
+                                     if task.get('is_recurring', False) and task.get('enabled', True))
+                total_executions = sum(task.get('execution_count', 0) for task in all_tasks)
+                
+                logger.info(f"Task Statistics: {len(all_tasks)} total tasks, "
+                          f"{recurring_count} recurring ({active_recurring} active), "
+                          f"{total_executions} total executions")
+                
+                # Get memory statistics
+                memory_stats = self.memory_manager.get_memory_stats()
+                logger.info(f"Memory Statistics: {memory_stats['total_memory_entries']} entries, "
+                          f"{memory_stats['agents_with_memory']} agents with memory")
+                
+                self._last_stats_log = current_time
+                
+            except Exception as e:
+                logger.error(f"Error logging periodic stats: {e}")
 
 # Initialize enhanced background scheduler
 background_scheduler = BackgroundScheduler(
@@ -959,18 +1020,66 @@ def _validate_field_type(value: Any, expected_type: str) -> bool:
 # Scheduling endpoints (unchanged)
 @app.post("/schedule", response_model=ScheduleResponse)
 async def schedule_task(task: ScheduledTaskDefinition):
-    """Schedule a task for execution"""
+    """Schedule a task for execution with full recurring support"""
     try:
+        # Debug logging
+        logger.info(f"Received task data: {task.dict()}")
+        
+        # Ensure scheduled_time is properly converted if it's a string
+        scheduled_time = task.scheduled_time
+        if isinstance(scheduled_time, str):
+            try:
+                # Handle ISO format with or without Z suffix
+                if scheduled_time.endswith('Z'):
+                    scheduled_time = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+                else:
+                    scheduled_time = datetime.fromisoformat(scheduled_time)
+                logger.info(f"Converted scheduled_time to: {scheduled_time}")
+            except ValueError as e:
+                logger.error(f"Error parsing scheduled_time: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid date format: {scheduled_time}")
+        
+        # Call memory_manager with ALL recurring parameters
         task_id = memory_manager.schedule_task(
             task_type=task.task_type,
             agent_name=task.agent_name,
             workflow_name=task.workflow_name,
             task_description=task.task_description,
-            scheduled_time=task.scheduled_time,
-            context=task.context or {}
+            scheduled_time=scheduled_time,
+            context=task.context or {},
+            # NEW: Pass all recurring parameters
+            is_recurring=task.is_recurring,
+            recurrence_pattern=task.recurrence_pattern,
+            recurrence_type=task.recurrence_type,
+            max_executions=task.max_executions,
+            max_failures=task.max_failures
         )
-        return ScheduleResponse(id=task_id, message="Task scheduled successfully")
+        
+        # Calculate next execution for response
+        next_execution = None
+        if task.is_recurring and task.recurrence_pattern:
+            try:
+                next_execution = memory_manager._calculate_next_execution(
+                    scheduled_time, 
+                    task.recurrence_pattern, 
+                    task.recurrence_type
+                )
+            except Exception as e:
+                logger.warning(f"Could not calculate next execution: {e}")
+        
+        logger.info(f"Successfully created task {task_id} - recurring: {task.is_recurring}")
+        
+        return ScheduleResponse(
+            id=task_id, 
+            message="Task scheduled successfully",
+            is_recurring=task.is_recurring,
+            next_execution=next_execution
+        )
+        
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error scheduling task: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/schedule", response_model=List[ScheduledTaskInfo])
@@ -986,6 +1095,210 @@ async def delete_scheduled_task(task_id: int):
         return {"message": "Scheduled task deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/schedule/statistics")
+async def get_schedule_statistics():
+    """Get comprehensive scheduling statistics"""
+    try:
+        all_tasks = memory_manager.get_all_scheduled_tasks()
+        
+        stats = {
+            "total_tasks": len(all_tasks),
+            "one_time_tasks": sum(1 for task in all_tasks if not task.get('is_recurring', False)),
+            "recurring_tasks": sum(1 for task in all_tasks if task.get('is_recurring', False)),
+            "active_recurring": sum(1 for task in all_tasks 
+                                  if task.get('is_recurring', False) and task.get('enabled', True)),
+            "disabled_tasks": sum(1 for task in all_tasks if not task.get('enabled', True)),
+            "completed_tasks": sum(1 for task in all_tasks if task.get('status') == 'completed'),
+            "failed_tasks": sum(1 for task in all_tasks if task.get('status') == 'failed'),
+            "pending_tasks": sum(1 for task in all_tasks if task.get('status') == 'pending'),
+            "total_executions": sum(task.get('execution_count', 0) for task in all_tasks),
+            "successful_executions": sum(task.get('execution_count', 0) - task.get('failure_count', 0) 
+                                        for task in all_tasks),
+            "failed_executions": sum(task.get('failure_count', 0) for task in all_tasks)
+        }
+        
+        return stats
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/schedule/{task_id}/executions")
+async def get_task_executions(task_id: int, limit: int = 10):
+    """Get execution history for a specific task"""
+    try:
+        executions = memory_manager.get_task_executions(task_id, limit)
+        return {
+            "task_id": task_id,
+            "executions": executions,
+            "total_shown": len(executions)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/schedule/{task_id}/enable")
+async def enable_scheduled_task(task_id: int):
+    """Enable a scheduled task"""
+    try:
+        memory_manager.enable_scheduled_task(task_id)
+        return {"message": f"Task {task_id} enabled successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/schedule/{task_id}/disable")
+async def disable_scheduled_task(task_id: int):
+    """Disable a scheduled task"""
+    try:
+        memory_manager.disable_scheduled_task(task_id)
+        return {"message": f"Task {task_id} disabled successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/schedule/{task_id}")
+async def update_scheduled_task(task_id: int, task_update: ScheduledTaskUpdate):
+    """Update a scheduled task with full recurring support"""
+    try:
+        # Debug logging
+        logger.info(f"Updating task {task_id} with data: {task_update.dict(exclude_unset=True)}")
+        
+        # Get current task
+        all_tasks = memory_manager.get_all_scheduled_tasks()
+        current_task = next((task for task in all_tasks if task['id'] == task_id), None)
+        
+        if not current_task:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+        
+        # Convert the update data, handling datetime conversion
+        update_dict = task_update.dict(exclude_unset=True)
+        
+        # Handle scheduled_time conversion if provided
+        if 'scheduled_time' in update_dict and isinstance(update_dict['scheduled_time'], str):
+            try:
+                scheduled_time_str = update_dict['scheduled_time']
+                if scheduled_time_str.endswith('Z'):
+                    update_dict['scheduled_time'] = datetime.fromisoformat(scheduled_time_str.replace('Z', '+00:00'))
+                else:
+                    update_dict['scheduled_time'] = datetime.fromisoformat(scheduled_time_str)
+                logger.info(f"Converted scheduled_time to: {update_dict['scheduled_time']}")
+            except ValueError as e:
+                logger.error(f"Error parsing scheduled_time: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid date format: {update_dict['scheduled_time']}")
+        
+        # Validate recurrence pattern if provided
+        if update_dict.get('recurrence_pattern') and update_dict.get('recurrence_type'):
+            if not memory_manager.validate_recurrence_pattern(
+                update_dict['recurrence_pattern'], 
+                update_dict['recurrence_type']
+            ):
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Invalid recurrence pattern"
+                )
+        
+        # Update the task using the enhanced method
+        memory_manager.update_scheduled_task_fields(task_id, update_dict)
+        
+        logger.info(f"Successfully updated task {task_id}")
+        
+        return {
+            "message": f"Task {task_id} updated successfully",
+            "task_id": task_id,
+            "updated_fields": list(update_dict.keys())
+        }
+        
+    except ValueError as e:
+        logger.error(f"Task not found: {e}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating task {task_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/schedule/patterns/suggestions")
+async def get_recurrence_pattern_suggestions():
+    """Get suggested recurrence patterns for the UI"""
+    simple_patterns = [
+        {"pattern": "5m", "type": "simple", "description": "Every 5 minutes"},
+        {"pattern": "15m", "type": "simple", "description": "Every 15 minutes"},
+        {"pattern": "30m", "type": "simple", "description": "Every 30 minutes"},
+        {"pattern": "1h", "type": "simple", "description": "Every hour"},
+        {"pattern": "2h", "type": "simple", "description": "Every 2 hours"},
+        {"pattern": "6h", "type": "simple", "description": "Every 6 hours"},
+        {"pattern": "12h", "type": "simple", "description": "Every 12 hours"},
+        {"pattern": "1d", "type": "simple", "description": "Every day"},
+        {"pattern": "7d", "type": "simple", "description": "Every week"}
+    ]
+    
+    cron_patterns = [
+        {"pattern": "*/5 * * * *", "type": "cron", "description": "Every 5 minutes"},
+        {"pattern": "0 * * * *", "type": "cron", "description": "Every hour"},
+        {"pattern": "0 */6 * * *", "type": "cron", "description": "Every 6 hours"},
+        {"pattern": "0 9 * * *", "type": "cron", "description": "Daily at 9:00 AM"},
+        {"pattern": "0 9 * * 1", "type": "cron", "description": "Weekly on Monday at 9:00 AM"},
+        {"pattern": "0 9 1 * *", "type": "cron", "description": "Monthly on 1st at 9:00 AM"},
+        {"pattern": "0 0 * * 0", "type": "cron", "description": "Weekly on Sunday at midnight"},
+        {"pattern": "0 0 1 1 *", "type": "cron", "description": "Yearly on January 1st at midnight"}
+    ]
+    
+    return {
+        "simple_patterns": simple_patterns,
+        "cron_patterns": cron_patterns
+    }
+
+class PatternValidationRequest(BaseModel):
+    """Request model for pattern validation"""
+    pattern: str = Field(..., description="Pattern to validate")
+    pattern_type: str = Field(..., description="Pattern type: simple or cron")
+
+@app.post("/schedule/patterns/validate")
+async def validate_recurrence_pattern(request: PatternValidationRequest):
+    """Validate a recurrence pattern"""
+    try:
+        is_valid = memory_manager.validate_recurrence_pattern(request.pattern, request.pattern_type)
+        
+        result = {
+            "pattern": request.pattern,
+            "pattern_type": request.pattern_type,
+            "is_valid": is_valid
+        }
+        
+        if is_valid:
+            # Calculate next few execution times as preview
+            try:
+                base_time = datetime.utcnow()
+                next_executions = []
+                
+                for i in range(3):  # Show next 3 executions
+                    if request.pattern_type == "cron":
+                        from croniter import croniter
+                        cron = croniter(request.pattern, base_time)
+                        next_time = cron.get_next(datetime)
+                    else:  # simple
+                        next_time = memory_manager._parse_simple_pattern(base_time, request.pattern)
+                    
+                    next_executions.append(next_time.isoformat())
+                    base_time = next_time
+                
+                result["next_executions_preview"] = next_executions
+                
+            except Exception as e:
+                result["preview_error"] = str(e)
+        
+        return result
+        
+    except Exception as e:
+        return {
+            "pattern": request.pattern,
+            "pattern_type": request.pattern_type,
+            "is_valid": False,
+            "error": str(e)
+        }
+
 
 if __name__ == "__main__":
     uvicorn.run(

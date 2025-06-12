@@ -1,4 +1,4 @@
-// js/api.js - API Client for Agentic AI Framework
+// js/api.js - Enhanced API Client with Recurring Task Support
 
 class AgenticAPI {
     constructor(baseURL = 'http://localhost:8000') {
@@ -39,7 +39,7 @@ class AgenticAPI {
         }
     }
 
-    // Health & System endpoints
+    // Health & System endpoints (unchanged)
     getHealth() { 
         return this.request('/health'); 
     }
@@ -133,7 +133,7 @@ class AgenticAPI {
         return this.request('/memory/stats'); 
     }
 
-    // Agent endpoints
+    // Agent endpoints (unchanged)
     getAgents() { 
         return this.request('/agents'); 
     }
@@ -165,7 +165,7 @@ class AgenticAPI {
         });
     }
 
-    // Workflow endpoints
+    // Workflow endpoints (unchanged)
     getWorkflows() { 
         return this.request('/workflows'); 
     }
@@ -197,7 +197,7 @@ class AgenticAPI {
         });
     }
 
-    // Tool endpoints
+    // Tool endpoints (unchanged)
     getTools() { 
         return this.request('/tools'); 
     }
@@ -209,7 +209,7 @@ class AgenticAPI {
         });
     }
 
-    // Scheduling endpoints
+    // ENHANCED: Scheduling endpoints with recurring support
     getScheduledTasks() { 
         return this.request('/schedule'); 
     }
@@ -221,13 +221,56 @@ class AgenticAPI {
         });
     }
     
+    updateScheduledTask(taskId, updates) {
+        return this.request(`/schedule/${encodeURIComponent(taskId)}`, {
+            method: 'PUT',
+            body: JSON.stringify(updates)
+        });
+    }
+    
     deleteScheduledTask(taskId) {
         return this.request(`/schedule/${encodeURIComponent(taskId)}`, {
             method: 'DELETE'
         });
     }
 
-    // Provider management endpoints
+    // NEW: Recurring task management endpoints
+    enableScheduledTask(taskId) {
+        return this.request(`/schedule/${encodeURIComponent(taskId)}/enable`, {
+            method: 'POST'
+        });
+    }
+
+    disableScheduledTask(taskId) {
+        return this.request(`/schedule/${encodeURIComponent(taskId)}/disable`, {
+            method: 'POST'
+        });
+    }
+
+    getTaskExecutions(taskId, limit = 10) {
+        return this.request(`/schedule/${encodeURIComponent(taskId)}/executions?limit=${limit}`);
+    }
+
+    getScheduleStatistics() {
+        return this.request('/schedule/statistics');
+    }
+
+    // NEW: Recurrence pattern endpoints
+    getRecurrencePatternSuggestions() {
+        return this.request('/schedule/patterns/suggestions');
+    }
+
+    validateRecurrencePattern(pattern, patternType) {
+        return this.request('/schedule/patterns/validate', {
+            method: 'POST',
+            body: JSON.stringify({
+                pattern: pattern,
+                pattern_type: patternType
+            })
+        });
+    }
+
+    // Provider management endpoints (unchanged)
     getProviders() { 
         return this.request('/providers'); 
     }
@@ -261,7 +304,7 @@ class AgenticAPI {
         });
     }
 
-    // Model management endpoints
+    // Model management endpoints (unchanged)
     installModel(modelName, waitForCompletion = false) {
         return this.request('/models/install', {
             method: 'POST',
