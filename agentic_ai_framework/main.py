@@ -1020,18 +1020,66 @@ def _validate_field_type(value: Any, expected_type: str) -> bool:
 # Scheduling endpoints (unchanged)
 @app.post("/schedule", response_model=ScheduleResponse)
 async def schedule_task(task: ScheduledTaskDefinition):
-    """Schedule a task for execution"""
+    """Schedule a task for execution with full recurring support"""
     try:
+        # Debug logging
+        logger.info(f"Received task data: {task.dict()}")
+        
+        # Ensure scheduled_time is properly converted if it's a string
+        scheduled_time = task.scheduled_time
+        if isinstance(scheduled_time, str):
+            try:
+                # Handle ISO format with or without Z suffix
+                if scheduled_time.endswith('Z'):
+                    scheduled_time = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+                else:
+                    scheduled_time = datetime.fromisoformat(scheduled_time)
+                logger.info(f"Converted scheduled_time to: {scheduled_time}")
+            except ValueError as e:
+                logger.error(f"Error parsing scheduled_time: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid date format: {scheduled_time}")
+        
+        # Call memory_manager with ALL recurring parameters
         task_id = memory_manager.schedule_task(
             task_type=task.task_type,
             agent_name=task.agent_name,
             workflow_name=task.workflow_name,
             task_description=task.task_description,
-            scheduled_time=task.scheduled_time,
-            context=task.context or {}
+            scheduled_time=scheduled_time,
+            context=task.context or {},
+            # NEW: Pass all recurring parameters
+            is_recurring=task.is_recurring,
+            recurrence_pattern=task.recurrence_pattern,
+            recurrence_type=task.recurrence_type,
+            max_executions=task.max_executions,
+            max_failures=task.max_failures
         )
-        return ScheduleResponse(id=task_id, message="Task scheduled successfully")
+        
+        # Calculate next execution for response
+        next_execution = None
+        if task.is_recurring and task.recurrence_pattern:
+            try:
+                next_execution = memory_manager._calculate_next_execution(
+                    scheduled_time, 
+                    task.recurrence_pattern, 
+                    task.recurrence_type
+                )
+            except Exception as e:
+                logger.warning(f"Could not calculate next execution: {e}")
+        
+        logger.info(f"Successfully created task {task_id} - recurring: {task.is_recurring}")
+        
+        return ScheduleResponse(
+            id=task_id, 
+            message="Task scheduled successfully",
+            is_recurring=task.is_recurring,
+            next_execution=next_execution
+        )
+        
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error scheduling task: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/schedule", response_model=List[ScheduledTaskInfo])
@@ -1112,8 +1160,11 @@ async def disable_scheduled_task(task_id: int):
 
 @app.put("/schedule/{task_id}")
 async def update_scheduled_task(task_id: int, task_update: ScheduledTaskUpdate):
-    """Update a scheduled task"""
+    """Update a scheduled task with full recurring support"""
     try:
+        # Debug logging
+        logger.info(f"Updating task {task_id} with data: {task_update.dict(exclude_unset=True)}")
+        
         # Get current task
         all_tasks = memory_manager.get_all_scheduled_tasks()
         current_task = next((task for task in all_tasks if task['id'] == task_id), None)
@@ -1121,31 +1172,51 @@ async def update_scheduled_task(task_id: int, task_update: ScheduledTaskUpdate):
         if not current_task:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         
+        # Convert the update data, handling datetime conversion
+        update_dict = task_update.dict(exclude_unset=True)
+        
+        # Handle scheduled_time conversion if provided
+        if 'scheduled_time' in update_dict and isinstance(update_dict['scheduled_time'], str):
+            try:
+                scheduled_time_str = update_dict['scheduled_time']
+                if scheduled_time_str.endswith('Z'):
+                    update_dict['scheduled_time'] = datetime.fromisoformat(scheduled_time_str.replace('Z', '+00:00'))
+                else:
+                    update_dict['scheduled_time'] = datetime.fromisoformat(scheduled_time_str)
+                logger.info(f"Converted scheduled_time to: {update_dict['scheduled_time']}")
+            except ValueError as e:
+                logger.error(f"Error parsing scheduled_time: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid date format: {update_dict['scheduled_time']}")
+        
         # Validate recurrence pattern if provided
-        if task_update.recurrence_pattern and task_update.recurrence_type:
+        if update_dict.get('recurrence_pattern') and update_dict.get('recurrence_type'):
             if not memory_manager.validate_recurrence_pattern(
-                task_update.recurrence_pattern, 
-                task_update.recurrence_type
+                update_dict['recurrence_pattern'], 
+                update_dict['recurrence_type']
             ):
                 raise HTTPException(
                     status_code=400, 
                     detail="Invalid recurrence pattern"
                 )
         
-        # Update the task in database
-        update_dict = task_update.dict(exclude_unset=True)
+        # Update the task using the enhanced method
+        memory_manager.update_scheduled_task_fields(task_id, update_dict)
         
-        # Note: You'll need to implement update_scheduled_task_fields method in memory_manager
-        # For now, return a message indicating this needs implementation
+        logger.info(f"Successfully updated task {task_id}")
+        
         return {
-            "message": "Task update functionality needs to be implemented in memory_manager.update_scheduled_task_fields()",
+            "message": f"Task {task_id} updated successfully",
             "task_id": task_id,
-            "requested_updates": update_dict
+            "updated_fields": list(update_dict.keys())
         }
         
+    except ValueError as e:
+        logger.error(f"Task not found: {e}")
+        raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error updating task {task_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/schedule/patterns/suggestions")

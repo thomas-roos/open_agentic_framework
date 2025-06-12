@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field, validator
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from enum import Enum
+from datetime import datetime, timezone
+
 
 # Agent Models (existing, unchanged)
 class AgentDefinition(BaseModel):
@@ -211,7 +213,7 @@ class ScheduledTaskDefinition(BaseModel):
         default={}, description="Execution context"
     )
     
-    # NEW: Recurring task fields
+    # Recurring task fields with proper defaults
     is_recurring: bool = Field(default=False, description="Whether this is a recurring task")
     recurrence_pattern: Optional[str] = Field(
         default=None, 
@@ -246,6 +248,28 @@ class ScheduledTaskDefinition(BaseModel):
                 raise ValueError('Simple pattern must be in format: number + m/h/d (e.g., "5m", "2h", "1d")')
         
         return v
+    
+    @validator('agent_name')
+    def validate_agent_name(cls, v, values):
+        """Validate agent_name is provided for agent tasks"""
+        if values.get('task_type') == TaskType.AGENT and not v:
+            raise ValueError('agent_name is required for agent tasks')
+        return v
+    
+    @validator('workflow_name')
+    def validate_workflow_name(cls, v, values):
+        """Validate workflow_name is provided for workflow tasks"""
+        if values.get('task_type') == TaskType.WORKFLOW and not v:
+            raise ValueError('workflow_name is required for workflow tasks')
+        return v
+
+    class Config:
+        # Allow extra fields for future compatibility
+        extra = "forbid"
+        # Ensure proper JSON serialization
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
 
 class ScheduledTaskUpdate(BaseModel):
     """Model for updating a scheduled task"""

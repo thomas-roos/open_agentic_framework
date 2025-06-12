@@ -1,7 +1,58 @@
-// js/components/ScheduleTaskModal.js - Enhanced Schedule Task Modal with Recurring Support
+// js/components/ScheduleTaskModal.js - Fixed with proper timezone handling
 
 const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave }) => {
     const { useState, useEffect } = React;
+
+    // Helper function to convert UTC to local datetime-local format
+    const utcToLocalInput = (utcDateString) => {
+        if (!utcDateString) return '';
+        
+        // Parse the UTC date string
+        const utcDate = new Date(utcDateString);
+        
+        // Convert to local time for datetime-local input
+        // datetime-local expects format: YYYY-MM-DDTHH:mm
+        const year = utcDate.getFullYear();
+        const month = String(utcDate.getMonth() + 1).padStart(2, '0');
+        const day = String(utcDate.getDate()).padStart(2, '0');
+        const hours = String(utcDate.getHours()).padStart(2, '0');
+        const minutes = String(utcDate.getMinutes()).padStart(2, '0');
+        
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    };
+
+    // Helper function to convert local datetime-local to UTC ISO string
+    const localInputToUtc = (localDateString) => {
+        if (!localDateString) return new Date().toISOString();
+        
+        // The datetime-local input gives us local time in format: "2024-01-15T14:30"
+        // Create a Date object from this local time string
+        const localDate = new Date(localDateString);
+        
+        // Validate the date
+        if (isNaN(localDate.getTime())) {
+            console.error('Invalid date format:', localDateString);
+            return new Date().toISOString();
+        }
+        
+        // Return UTC ISO string
+        return localDate.toISOString();
+    };
+
+    // Get current local time for default scheduling (5 minutes from now)
+    const getDefaultScheduledTime = () => {
+        const now = new Date();
+        const fiveMinutesLater = new Date(now.getTime() + 5 * 60000);
+        
+        // Format for datetime-local input
+        const year = fiveMinutesLater.getFullYear();
+        const month = String(fiveMinutesLater.getMonth() + 1).padStart(2, '0');
+        const day = String(fiveMinutesLater.getDate()).padStart(2, '0');
+        const hours = String(fiveMinutesLater.getHours()).padStart(2, '0');
+        const minutes = String(fiveMinutesLater.getMinutes()).padStart(2, '0');
+        
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    };
 
     const [formData, setFormData] = useState({
         task_type: task?.task_type || 'agent',
@@ -9,8 +60,8 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
         workflow_name: task?.workflow_name || '',
         task_description: task?.task_description || '',
         scheduled_time: task?.scheduled_time ? 
-            new Date(task.scheduled_time).toISOString().slice(0, 16) : 
-            new Date(Date.now() + 60000).toISOString().slice(0, 16), // 1 minute from now
+            utcToLocalInput(task.scheduled_time) : 
+            getDefaultScheduledTime(),
         context: task?.context ? JSON.stringify(task.context, null, 2) : '{}',
         // NEW: Recurring fields
         is_recurring: task?.is_recurring || false,
@@ -85,8 +136,18 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
             return;
         }
 
-        if (new Date(formData.scheduled_time) <= new Date()) {
-            alert('Scheduled time must be in the future');
+        // Convert local time to UTC and validate
+        const scheduledTimeUtc = localInputToUtc(formData.scheduled_time);
+        const scheduledDate = new Date(scheduledTimeUtc);
+        const currentTime = new Date();
+        
+        console.log('Debug - Local input:', formData.scheduled_time);
+        console.log('Debug - Converted to UTC:', scheduledTimeUtc);
+        console.log('Debug - Current time:', currentTime.toISOString());
+        console.log('Debug - Scheduled time:', scheduledDate.toISOString());
+        
+        if (scheduledDate <= currentTime) {
+            alert(`Scheduled time must be in the future.\nSelected: ${scheduledDate.toLocaleString()}\nCurrent: ${currentTime.toLocaleString()}`);
             return;
         }
 
@@ -120,7 +181,7 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
                 agent_name: formData.task_type === 'agent' ? formData.agent_name : undefined,
                 workflow_name: formData.task_type === 'workflow' ? formData.workflow_name : undefined,
                 task_description: formData.task_description,
-                scheduled_time: new Date(formData.scheduled_time).toISOString(),
+                scheduled_time: scheduledTimeUtc, // Send UTC ISO string to backend
                 context: contextObj,
                 is_recurring: formData.is_recurring,
                 recurrence_pattern: formData.is_recurring ? formData.recurrence_pattern : undefined,
@@ -129,9 +190,15 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
                 max_failures: parseInt(formData.max_failures)
             };
 
+            console.log('Debug - Sending task data:', taskData);
+
             if (task) {
-                // Update existing task (if your API supports it)
-                alert('Task update not yet fully implemented in the API');
+                // Update existing task
+                await api.updateScheduledTask(task.id, taskData);
+                const message = formData.is_recurring ? 
+                    'Recurring task updated successfully!' : 
+                    'Task updated successfully!';
+                alert(message);
             } else {
                 // Create new task
                 await api.scheduleTask(taskData);
@@ -144,7 +211,8 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
             await onSave();
             onClose();
         } catch (error) {
-            alert(`Failed to schedule task: ${error.message}`);
+            console.error('Error saving task:', error);
+            alert(`Failed to ${task ? 'update' : 'schedule'} task: ${error.message}`);
         } finally {
             setSaving(false);
         }
@@ -166,7 +234,15 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
     };
 
     const setQuickTime = (date) => {
-        updateFormData('scheduled_time', date.toISOString().slice(0, 16));
+        // Convert Date object to datetime-local format
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        
+        const localInputValue = `${year}-${month}-${day}T${hours}:${minutes}`;
+        updateFormData('scheduled_time', localInputValue);
     };
 
     const setQuickPattern = (pattern, type) => {
@@ -194,6 +270,18 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
         return formData.recurrence_type === 'cron' ? 
             patternSuggestions.cron_patterns : 
             patternSuggestions.simple_patterns;
+    };
+
+    // Get current local time for min attribute (1 minute from now)
+    const getMinDateTime = () => {
+        const oneMinuteFromNow = new Date(Date.now() + 60000);
+        const year = oneMinuteFromNow.getFullYear();
+        const month = String(oneMinuteFromNow.getMonth() + 1).padStart(2, '0');
+        const day = String(oneMinuteFromNow.getDate()).padStart(2, '0');
+        const hours = String(oneMinuteFromNow.getHours()).padStart(2, '0');
+        const minutes = String(oneMinuteFromNow.getMinutes()).padStart(2, '0');
+        
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
     };
 
     return React.createElement('div', {
@@ -267,7 +355,6 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
                             }, [
                                 React.createElement('input', {
                                     key: 'radio',
-                                    type: 'radio',
                                     name: 'task_type',
                                     value: 'workflow',
                                     checked: formData.task_type === 'workflow',
@@ -399,16 +486,20 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
                         React.createElement('label', { 
                             key: 'label',
                             className: 'form-label' 
-                        }, formData.is_recurring ? 'First Execution Time' : 'Scheduled Time'),
+                        }, formData.is_recurring ? 'First Execution Time (Local)' : 'Scheduled Time (Local)'),
                         React.createElement('input', {
                             key: 'input',
                             className: 'form-input',
                             type: 'datetime-local',
                             value: formData.scheduled_time,
                             onChange: e => updateFormData('scheduled_time', e.target.value),
-                            min: new Date(Date.now() + 60000).toISOString().slice(0, 16), // 1 minute from now
+                            min: getMinDateTime(),
                             required: true
                         }),
+                        React.createElement('small', {
+                            key: 'timezone-info',
+                            style: { color: '#64748b', fontSize: '11px', marginTop: '4px', display: 'block' }
+                        }, `Current selection: ${formData.scheduled_time ? new Date(formData.scheduled_time).toLocaleString() : 'None'} (local time)`),
                         React.createElement('div', {
                             key: 'quick-options',
                             style: { marginTop: '8px' }
@@ -692,7 +783,11 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
                                     (formData.workflow_name || 'No workflow selected')}`),
                             React.createElement('p', { key: 'time' }, 
                                 `⏰ ${formData.is_recurring ? 'First execution' : 'Scheduled'}: ${formData.scheduled_time ? 
-                                    new Date(formData.scheduled_time).toLocaleString() : 
+                                    new Date(formData.scheduled_time).toLocaleString() + ' (local time)' : 
+                                    'No time set'}`),
+                            React.createElement('p', { key: 'utc-time' }, 
+                                `🌍 UTC time: ${formData.scheduled_time ? 
+                                    new Date(localInputToUtc(formData.scheduled_time)).toLocaleString() + ' UTC' : 
                                     'No time set'}`),
                             formData.is_recurring && formData.recurrence_pattern && React.createElement('p', { key: 'pattern' }, 
                                 `🔄 Repeats: ${formData.recurrence_pattern} (${formData.recurrence_type})`),
@@ -733,7 +828,7 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
                             className: 'spinner',
                             style: { width: '12px', height: '12px' }
                         }),
-                        'Scheduling...'
+                        'Saving...'
                     ] : [
                         React.createElement('i', { 
                             key: 'icon',

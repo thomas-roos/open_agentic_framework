@@ -868,3 +868,49 @@ class MemoryManager:
                 return False
         except:
             return False
+
+    def update_scheduled_task_fields(self, task_id: int, updates: Dict[str, Any]):
+        """Update specific fields of a scheduled task"""
+        with self.get_session() as session:
+            task = session.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
+            if not task:
+                raise ValueError(f"Scheduled task {task_id} not found")
+        
+            # Update allowed fields
+            allowed_fields = [
+                'task_description', 'scheduled_time', 'context', 'is_recurring',
+                'recurrence_pattern', 'recurrence_type', 'max_executions', 
+                'max_failures', 'enabled'
+            ]
+        
+            old_pattern = task.recurrence_pattern
+            old_type = task.recurrence_type
+            old_scheduled = task.scheduled_time
+        
+            for key, value in updates.items():
+                if key in allowed_fields and hasattr(task, key):
+                    setattr(task, key, value)
+        
+            # Recalculate next execution if recurrence or time changed
+            pattern_changed = (
+                updates.get('recurrence_pattern') != old_pattern or
+                updates.get('recurrence_type') != old_type or
+                updates.get('scheduled_time') != old_scheduled
+            )
+        
+            if pattern_changed and task.is_recurring and task.recurrence_pattern:
+                # Use the updated scheduled_time as base for calculation
+                base_time = task.scheduled_time or datetime.utcnow()
+                task.next_execution = self._calculate_next_execution(
+                    base_time,
+                    task.recurrence_pattern,
+                    task.recurrence_type
+                )
+                logger.info(f"Recalculated next execution for task {task_id}: {task.next_execution}")
+            elif not task.is_recurring:
+                # Clear next_execution for non-recurring tasks
+                task.next_execution = None
+        
+            session.commit()
+            logger.info(f"Updated scheduled task: {task_id}")
+            return task_id
