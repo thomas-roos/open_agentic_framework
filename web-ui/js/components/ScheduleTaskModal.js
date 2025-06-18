@@ -355,6 +355,7 @@ const ScheduleTaskModal = ({ task, agents = [], workflows = [], onClose, onSave 
                             }, [
                                 React.createElement('input', {
                                     key: 'radio',
+                                    type: 'radio',
                                     name: 'task_type',
                                     value: 'workflow',
                                     checked: formData.task_type === 'workflow',
