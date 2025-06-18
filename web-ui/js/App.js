@@ -97,7 +97,7 @@ const App = () => {
                         key: 'icon',
                         className: 'fas fa-brain' 
                     }),
-                    'OAF'
+                    'Open Agentic'
                 ])
             ),
             
