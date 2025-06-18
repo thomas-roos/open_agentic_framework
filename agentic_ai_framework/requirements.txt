@@ -17,7 +17,7 @@ pydantic==2.5.1
 pydantic-settings==2.1.0
 
 # File upload and form handling
-python-multipart==0.0.6
+python-multipart==0.0.18
 
 # Authentication and security (for future use)
 python-jose[cryptography]==3.3.0
