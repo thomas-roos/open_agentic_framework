@@ -49,7 +49,7 @@ isort==5.12.0
 python-dotenv==1.0.0
 
 # JSON handling
-orjson==3.9.10
+orjson==3.9.15
 
 # Date and time utilities
 python-dateutil==2.8.2
