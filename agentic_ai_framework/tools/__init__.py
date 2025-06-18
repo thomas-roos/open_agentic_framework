@@ -1,4 +1,4 @@
-"""Tools package for the Agentic AI Framework"""
+"""Tools package for the Open Agentic Framework"""
 
 from .base_tool import BaseTool
 

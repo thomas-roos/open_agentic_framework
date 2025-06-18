@@ -1,11 +1,11 @@
-# Agentic AI Framework
+# Open Agentic Framework
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.68+-00a393.svg)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ed.svg)](https://www.docker.com/)
 
-A powerful, production-ready framework for creating and orchestrating AI agents with **multi-provider LLM support**, intelligent memory management, and advanced workflow capabilities.
+A sample implementation of a framework for creating and orchestrating AI agents with **multi-provider LLM support**, intelligent memory management, and advanced workflow capabilities.
 
 ## Features
 
@@ -32,8 +32,8 @@ A powerful, production-ready framework for creating and orchestrating AI agents 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/agentic-ai-framework.git
-cd agentic-ai-framework
+git clone https://github.com/oscarvalenzuelab/open_agentic_framework.git
+cd open_agentic_framework
 
 # Start the framework
 docker-compose up -d
@@ -466,13 +466,6 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-### Code Standards
-
-- Follow PEP 8 style guidelines
-- Add type hints to all functions
-- Include docstrings for classes and methods
-- Write tests for new features
-- Update documentation as needed
 
 ## License
 

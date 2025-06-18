@@ -2,7 +2,7 @@
 
 // Wait for DOM to be ready
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('Agentic AI Framework UI starting...');
+    console.log('Open Agentic Framework UI starting...');
     
     // Check if React is loaded
     if (typeof React === 'undefined') {
@@ -75,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('root')
         );
         
-        console.log('Agentic AI Framework UI loaded successfully!');
+        console.log('Open Agentic Framework UI loaded successfully!');
         
     } catch (error) {
         console.error('Failed to render application:', error);

@@ -254,7 +254,7 @@ In cases of immediate safety concerns or urgent violations:
 
 ## Thank You
 
-Thank you for helping make the Agentic AI Framework community a welcoming, inclusive, and productive space for everyone. By participating in our community, you're helping build the future of AI automation while creating an environment where all contributors can thrive.
+Thank you for helping make the Open Agentic Framework community a welcoming, inclusive, and productive space for everyone. By participating in our community, you're helping build the future of AI automation while creating an environment where all contributors can thrive.
 
 Together, we can build not just better software, but a better community. 🚀
 

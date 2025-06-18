@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title="Agentic AI Framework",
+    title="Open Agentic Framework",
     description="A robust framework for managing AI agents and workflows with multi-provider LLM support",
     version="1.2.0"
 )
@@ -231,12 +231,12 @@ async def startup_event():
         # Start background scheduler
         asyncio.create_task(background_scheduler.start())
         
-        logger.info("Agentic AI Framework started successfully with enhanced memory management")
+        logger.info("Open Agentic Framework started successfully with enhanced memory management")
         
         # Start model warmup manager
         await warmup_manager.start()
         
-        logger.info("Agentic AI Framework started successfully with multi-provider support")
+        logger.info("Open Agentic Framework started successfully with multi-provider support")
     except Exception as e:
         logger.error(f"Startup error: {e}")
         raise
@@ -246,14 +246,14 @@ async def shutdown_event():
     """Cleanup on shutdown"""
     background_scheduler.stop()
     await warmup_manager.stop()
-    logger.info("Agentic AI Framework shutdown complete")
+    logger.info("Open Agentic Framework shutdown complete")
 
 # Root endpoints
 @app.get("/")
 async def root():
     """Root endpoint with basic information"""
     return {
-        "message": "Agentic AI Framework",
+        "message": "Open Agentic Framework",
         "version": "1.2.0",
         "docs": "/docs",
         "health": "/health",

@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Agentic AI Framework Application
+  # Open Agentic Framework Application
   agentic-ai:
     build: .
     container_name: agentic-ai-framework

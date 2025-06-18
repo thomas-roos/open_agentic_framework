@@ -39,7 +39,7 @@ class OpenRouterProvider(BaseLLMProvider):
         self.base_url = config.get("base_url", "https://openrouter.ai/api/v1").rstrip('/')
         self.timeout = config.get("timeout", 300)
         self.default_model = config.get("default_model", "openai/gpt-3.5-turbo")
-        self.app_name = config.get("app_name", "Agentic AI Framework")
+        self.app_name = config.get("app_name", "Open Agentic Framework")
         self.site_url = config.get("site_url", "https://github.com/your-repo")
         
         if not self.api_key:

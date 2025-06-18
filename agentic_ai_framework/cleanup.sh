@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Complete System Cleanup Script
-# This removes EVERYTHING Docker-related for the Agentic AI Framework
+# This removes EVERYTHING Docker-related for the Open Agentic Framework
 # BUT preserves Ollama images to avoid re-downloading models
 
 set -e
@@ -13,7 +13,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}🧹 Complete Agentic AI Framework Cleanup${NC}"
+echo -e "${BLUE}🧹 Complete Open Agentic Framework Cleanup${NC}"
 echo -e "${YELLOW}This will remove project containers, images, volumes, and networks!${NC}"
 echo -e "${GREEN}✅ Ollama images will be preserved to avoid re-downloading models${NC}"
 echo ""

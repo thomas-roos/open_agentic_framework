@@ -32,7 +32,7 @@ class AgenticAPI {
             console.error('API Error:', error);
             
             if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                throw new Error('Cannot connect to API server. Make sure the Agentic AI Framework is running on http://localhost:8000');
+                throw new Error('Cannot connect to API server. Make sure the Open Agentic Framework is running on http://localhost:8000');
             }
             
             throw error;
@@ -49,7 +49,7 @@ class AgenticAPI {
             return await this.request('/providers');
         } catch (error) {
             if (error.message.includes('404')) {
-                console.warn('Providers endpoint not available - using older version of Agentic AI Framework');
+                console.warn('Providers endpoint not available - using older version of Open Agentic Framework');
                 return null;
             }
             throw error;

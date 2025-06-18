@@ -1,6 +1,6 @@
 # Production Deployment Guide
 
-This guide provides detailed instructions for deploying the Agentic AI Framework to Cloud Provider for production use with **multi-provider LLM support** and advanced monitoring.
+This guide provides detailed instructions for deploying the Open Agentic Framework to Cloud Provider for production use with **multi-provider LLM support** and advanced monitoring.
 
 ## Prerequisites
 
@@ -95,8 +95,8 @@ systemctl enable docker
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/agentic-ai-framework.git
-cd agentic-ai-framework
+git clone https://github.com/oscarvalenzuelab/open_agentic_framework.git
+cd open_agentic_framework
 
 # 2. Configure environment for production
 cp .env.production .env
@@ -449,7 +449,7 @@ docker-compose logs -f --tail=100
 # Create enhanced monitoring script
 cat > /usr/local/bin/agentic-health-check.sh << 'EOF'
 #!/bin/bash
-# Enhanced Agentic AI Framework Health Check
+# Enhanced Open Agentic Framework Health Check
 
 HEALTH_URL="http://localhost:8000/health"
 PROVIDERS_URL="http://localhost:8000/providers"
@@ -526,7 +526,7 @@ echo "*/5 * * * * /usr/local/bin/agentic-health-check.sh" | crontab -
 # Create comprehensive backup script
 cat > /usr/local/bin/agentic-backup.sh << 'EOF'
 #!/bin/bash
-# Enhanced Agentic AI Framework Backup
+# Enhanced Open Agentic Framework Backup
 
 BACKUP_DIR="/root/backups"
 DATE=$(date +%Y%m%d_%H%M%S)
@@ -776,6 +776,6 @@ EOF
 7. **Caching**: Leverage model warmup for frequently used models
 8. **Scaling**: Consider horizontal scaling for high-volume deployments
 
-Your enhanced Agentic AI Framework with multi-provider support is now ready for production use!
+Your enhanced Open Agentic Framework with multi-provider support is now ready for production use!
 
 For additional support, refer to the main [README.md](README.md) or create an issue in the project repository.

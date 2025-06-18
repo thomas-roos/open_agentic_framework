@@ -1,4 +1,4 @@
-# Quick Start Guide - Agentic AI Framework
+# Quick Start Guide - Open Agentic Framework
 
 Get your **multi-provider AI agent framework** running in **10 minutes** with this step-by-step guide!
 
@@ -28,8 +28,8 @@ By the end of this guide, you'll have:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/agentic-ai-framework.git
-cd agentic-ai-framework
+git clone https://github.com/oscarvalenzuelab/open_agentic_framework.git
+cd open_agentic_framework
 
 # 2. Start the framework (this downloads models automatically)
 docker-compose up -d

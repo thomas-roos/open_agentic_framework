@@ -1,4 +1,4 @@
-# Agentic AI Framework - Makefile
+# Open Agentic Framework - Makefile
 # Convenient commands for development and deployment
 
 .PHONY: help setup deploy start stop restart logs status test clean lint format install build
@@ -21,7 +21,7 @@ VENV := venv
 DOCKER_COMPOSE := docker-compose
 
 help: ## Show this help message
-	@echo "$(BLUE)Agentic AI Framework - Development Commands$(NC)"
+	@echo "$(BLUE)Open Agentic Framework - Development Commands$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Setup Commands:$(NC)"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '(setup|install)' | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-15s$(NC) %s\n", $$1, $$2}'

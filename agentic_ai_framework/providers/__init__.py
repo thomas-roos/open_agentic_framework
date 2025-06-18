@@ -1,7 +1,7 @@
 """
 providers/__init__.py - LLM Provider Package
 
-This package contains all LLM provider implementations for the Agentic AI Framework.
+This package contains all LLM provider implementations for the Open Agentic Framework.
 """
 
 from .base_llm_provider import (

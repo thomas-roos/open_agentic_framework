@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Agentic AI Framework - Simple Deployment Script
+# Open Agentic Framework - Simple Deployment Script
 # Now with automatic model download via docker-compose
 
 set -e
@@ -11,7 +11,7 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${BLUE}🚀 Deploying Agentic AI Framework...${NC}"
+echo -e "${BLUE}🚀 Deploying Open Agentic Framework...${NC}"
 
 # Check Docker
 if ! command -v docker &> /dev/null; then
