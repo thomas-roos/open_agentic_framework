@@ -5,7 +5,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.68+-00a393.svg)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ed.svg)](https://www.docker.com/)
 
-A sample implementation of a framework for creating and orchestrating AI agents with **multi-provider LLM support**, intelligent memory management, and advanced workflow capabilities.
+A sample framework implementation for creating and orchestrating AI agents, featuring multi-provider LLM support, intelligent memory management, and advanced workflow capabilities.
 
 ## Features
 
