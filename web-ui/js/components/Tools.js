@@ -140,27 +140,6 @@ const Tools = () => {
                                     React.createElement('pre', {
                                         key: 'schema'
                                     }, JSON.stringify(tool.parameters_schema, null, 2))
-                                ]),
-
-                                React.createElement('button', {
-                                    key: 'execute',
-                                    className: 'btn btn-primary',
-                                    onClick: () => handleExecuteTool(tool),
-                                    disabled: !tool.enabled || executing === tool.name,
-                                    style: { marginTop: '16px' }
-                                }, executing === tool.name ? [
-                                    React.createElement('div', {
-                                        key: 'spinner',
-                                        className: 'spinner',
-                                        style: { width: '12px', height: '12px' }
-                                    }),
-                                    'Executing...'
-                                ] : [
-                                    React.createElement('i', { 
-                                        key: 'icon',
-                                        className: 'fas fa-play' 
-                                    }),
-                                    ' Test Tool'
                                 ])
                             ])
                         ])
