@@ -1,8 +1,5 @@
 """
 managers/llm_provider_manager.py - LLM Provider Management System
-
-Manages multiple LLM providers, handles routing, fallbacks, and provider selection.
-This replaces the single OllamaClient with a flexible multi-provider system.
 """
 
 import asyncio

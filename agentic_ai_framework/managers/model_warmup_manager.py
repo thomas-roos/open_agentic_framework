@@ -1,8 +1,5 @@
 """
 managers/model_warmup_manager.py - Model Warmup System
-
-Keeps models pre-loaded in memory for instant agent execution.
-Manages model lifecycle, memory usage, and automatic warmup.
 """
 
 import asyncio

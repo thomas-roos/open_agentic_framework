@@ -1,8 +1,5 @@
 """
 managers/tool_manager.py - Tool Discovery and Execution
-
-Manages dynamic tool discovery, registration, and execution.
-Handles loading tool classes from the tools directory and executing them with configurations.
 """
 
 import os

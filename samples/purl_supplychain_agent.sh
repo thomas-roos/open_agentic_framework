@@ -44,6 +44,55 @@ curl -X POST "http://localhost:8000/agents" \
     -d '{
       "name": "purl_license_assessment",
       "description": "Complete PURL-based license and security risk assessment workflow with data extraction",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "purl": {
+            "type": "string",
+            "description": "Package URL (PURL) to analyze (e.g., pkg:npm/lodash@4.17.21)"
+          }
+        },
+        "required": ["purl"]
+      },
+      "output_spec": {
+        "extractions": [
+          {
+            "name": "overall_risk",
+            "type": "path",
+            "query": "risk_assessment.OVERALL RISK LEVEL",
+            "default": "UNKNOWN",
+            "format": "text"
+          },
+          {
+            "name": "license_analysis",
+            "type": "path",
+            "query": "risk_assessment.LICENSE ANALYSIS",
+            "default": "{}",
+            "format": "text"
+          },
+          {
+            "name": "security_assessment",
+            "type": "path",
+            "query": "risk_assessment.SECURITY ASSESSMENT",
+            "default": "{}",
+            "format": "text"
+          },
+          {
+            "name": "legal_recommendations",
+            "type": "path",
+            "query": "risk_assessment.LEGAL RECOMMENDATIONS",
+            "default": "[]",
+            "format": "text"
+          },
+          {
+            "name": "compliance_checklist",
+            "type": "path",
+            "query": "risk_assessment.COMPLIANCE CHECKLIST",
+            "default": "[]",
+            "format": "text"
+          }
+        ]
+      },
       "steps": [
         {
           "type": "agent",

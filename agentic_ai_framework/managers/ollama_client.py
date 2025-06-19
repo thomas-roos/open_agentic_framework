@@ -1,12 +1,5 @@
 """
 managers/ollama_client.py - Fixed Ollama LLM Client
-
-Fixes for model installation:
-1. Added missing asyncio import
-2. Improved streaming response parsing
-3. Better completion detection logic
-4. Enhanced error handling
-5. Support for model name formats with/without tags
 """
 
 import aiohttp

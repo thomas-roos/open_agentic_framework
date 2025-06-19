@@ -1,7 +1,5 @@
 """
 managers/workflow_manager.py - Debug Version with Enhanced Logging
-
-This version includes extensive debugging to identify variable resolution issues.
 """
 
 import re
@@ -23,10 +21,9 @@ class WorkflowManager:
     async def execute_workflow(
         self, 
         workflow_name: str, 
-        context: Dict[str, Any] = None
+        context: Dict[str, Any] = {}
     ) -> Dict[str, Any]:
         """Execute workflow with input schema support"""
-        context = context or {}
     
         workflow = self.memory_manager.get_workflow(workflow_name)
         if not workflow:
@@ -106,6 +103,19 @@ class WorkflowManager:
                 })
                 raise Exception(f"Workflow {workflow_name} failed at step {i+1}: {e}")
     
+        # --- Output filtering logic ---
+        output_spec = workflow.get("output_spec")
+        if isinstance(output_spec, dict) and output_spec.get("extractions"):
+            # Use data extraction logic directly
+            extracted_data = self._extract_output_data(workflow_context, output_spec.get("extractions", []))
+            return {
+                "workflow_name": workflow_name,
+                "status": "completed",
+                "steps_executed": len(results),
+                "output": extracted_data,
+                "message": f"Extracted {len(extracted_data)} values"
+            }
+        # ---
         return {
             "workflow_name": workflow_name,
             "status": "completed",
@@ -444,3 +454,170 @@ class WorkflowManager:
             "warnings": validation["warnings"],
             "last_update": workflow["updated_at"]
         }
+    
+    def _extract_output_data(self, data: Dict[str, Any], extractions: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Extract data from workflow context using extraction specifications"""
+        results = {}
+        
+        for extraction in extractions:
+            try:
+                name = extraction.get("name", "unknown")
+                ext_type = extraction.get("type", "path")
+                query = extraction.get("query", "")
+                default_val = extraction.get("default", "")
+                format_type = extraction.get("format", "text")
+                find_criteria = extraction.get("find_criteria", {})
+                
+                # Extract value based on type
+                if ext_type == "path":
+                    value = self._extract_path_safe(data, query, default_val)
+                elif ext_type == "find":
+                    value = self._find_in_data(data, find_criteria, default_val)
+                elif ext_type == "regex":
+                    value = self._extract_regex_safe(json.dumps(data), query, default_val)
+                elif ext_type == "literal":
+                    value = query
+                else:
+                    value = default_val
+                
+                # Format value
+                formatted_value = self._format_safe(value, format_type)
+                results[str(name)] = formatted_value
+                
+            except Exception as e:
+                logger.warning(f"Extraction failed for {extraction.get('name', 'unknown')}: {e}")
+                results[str(extraction.get("name", "unknown"))] = extraction.get("default", "")
+        
+        return results
+    
+    def _extract_path_safe(self, data: Any, path: str, default: str) -> str:
+        """Safe path extraction that always returns a string"""
+        try:
+            if not path or not isinstance(data, dict):
+                return default
+            
+            current = data
+            parts = str(path).split('.')
+            
+            for part in parts:
+                if not part:
+                    continue
+                
+                # Handle array indices
+                if part.isdigit():
+                    index = int(part)
+                    if isinstance(current, list) and 0 <= index < len(current):
+                        current = current[index]
+                    else:
+                        return default
+                elif isinstance(current, dict):
+                    current = current.get(part)
+                elif isinstance(current, list):
+                    # If we hit an array but part is not a digit, try to find by key
+                    found = False
+                    for item in current:
+                        if isinstance(item, dict) and part in item:
+                            current = item[part]
+                            found = True
+                            break
+                    if not found:
+                        return default
+                else:
+                    return default
+                    
+                if current is None:
+                    return default
+            
+            # Convert result to string
+            return self._convert_to_string(current, default)
+                
+        except Exception as e:
+            logger.debug(f"Path extraction error: {e}")
+            return default
+    
+    def _find_in_data(self, data: Any, criteria: Dict[str, str], default: str) -> str:
+        """Find data using flexible criteria"""
+        try:
+            array_path = criteria.get("array_path", "")
+            match_field = criteria.get("match_field", "")
+            match_value = criteria.get("match_value", "")
+            extract_field = criteria.get("extract_field", "")
+            
+            if not all([array_path, match_field, match_value, extract_field]):
+                return default
+            
+            # Get the array
+            array_data = self._extract_path_safe(data, array_path, "")
+            if array_data == default:  # Failed to get array
+                return default
+            
+            # Parse array_data if it's a string representation
+            if isinstance(array_data, str) and array_data.startswith('['):
+                try:
+                    array_data = json.loads(array_data)
+                except:
+                    return default
+            
+            # Find matching item
+            if isinstance(array_data, list):
+                for item in array_data:
+                    if isinstance(item, dict):
+                        if str(item.get(match_field, "")) == match_value:
+                            result = item.get(extract_field)
+                            return self._convert_to_string(result, default)
+            
+            return default
+            
+        except Exception as e:
+            logger.debug(f"Find in data error: {e}")
+            return default
+    
+    def _convert_to_string(self, value: Any, default: str) -> Any:
+        """Convert any value to string safely, but preserve dicts and lists"""
+        if value is None:
+            return default
+        elif isinstance(value, (str, int, float, bool)):
+            return str(value)
+        elif isinstance(value, (list, tuple)):
+            return list(value)  # Return as list, not string
+        elif isinstance(value, dict):
+            return value  # Return as dict, not JSON string
+        else:
+            return str(value)
+    
+    def _extract_regex_safe(self, text: str, pattern: str, default: str) -> str:
+        """Safe regex extraction"""
+        try:
+            if not text or not pattern:
+                return default
+            
+            matches = re.findall(str(pattern), str(text))
+            if not matches:
+                return default
+            elif len(matches) == 1:
+                match = matches[0]
+                return str(match) if isinstance(match, str) else str(match[0]) if match else default
+            else:
+                return ", ".join(str(m) for m in matches if m)
+                
+        except Exception as e:
+            logger.debug(f"Regex extraction error: {e}")
+            return default
+    
+    def _format_safe(self, value: str, format_type: str) -> Any:
+        """Safe formatting that handles type conversion"""
+        try:
+            if format_type == "number":
+                try:
+                    if '.' in str(value):
+                        return float(value)
+                    else:
+                        return int(value)
+                except (ValueError, TypeError):
+                    return 0
+            elif format_type == "boolean":
+                return str(value).lower() in ('true', '1', 'yes', 'on')
+            else:
+                return str(value)
+        except Exception:
+            return str(value)

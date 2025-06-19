@@ -1,8 +1,5 @@
 """
 main.py - FastAPI Application Entry Point (Enhanced with Multi-Provider LLM Support)
-
-Updated to use the new LLMProviderManager instead of OllamaClient.
-Maintains backward compatibility while adding multi-provider support.
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -889,7 +886,8 @@ async def create_workflow(workflow_def: WorkflowDefinition):
             description=workflow_def.description,
             steps=steps_dict,
             enabled=workflow_def.enabled,
-            input_schema=workflow_def.input_schema
+            input_schema=workflow_def.input_schema,
+            output_spec=workflow_def.output_spec
         )
         return WorkflowResponse(id=workflow_id, name=workflow_def.name, message="Workflow created successfully")
     except Exception as e:

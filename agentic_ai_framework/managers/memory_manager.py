@@ -1,10 +1,5 @@
 """
 managers/memory_manager.py - Enhanced Database Management with Recurring Tasks
-
-Added recurring task support:
-- Database schema updates for recurring schedules
-- Cron and simple pattern support
-- Execution tracking and failure handling
 """
 
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, JSON, func
@@ -60,6 +55,7 @@ class Workflow(Base):
     steps = Column(JSON, nullable=False)
     enabled = Column(Boolean, default=True)
     input_schema = Column(JSON, default=None)
+    output_spec = Column(JSON, default=None)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -333,7 +329,8 @@ class MemoryManager:
         description: str, 
         steps: List[Dict[str, Any]],
         enabled: bool = True,
-        input_schema: Dict[str, Any] = None
+        input_schema: Dict[str, Any] = None,
+        output_spec: Dict[str, Any] = None
     ) -> int:
         """Register a new workflow"""
         with self.get_session() as session:
@@ -342,7 +339,8 @@ class MemoryManager:
                 description=description,
                 steps=steps,
                 enabled=enabled,
-                input_schema=input_schema
+                input_schema=input_schema,
+                output_spec=output_spec
             )
             session.add(workflow)
             session.commit()
@@ -362,6 +360,7 @@ class MemoryManager:
                     "steps": workflow.steps,
                     "enabled": workflow.enabled,
                     "input_schema": workflow.input_schema,
+                    "output_spec": workflow.output_spec,
                     "created_at": workflow.created_at,
                     "updated_at": workflow.updated_at
                 }
@@ -379,6 +378,7 @@ class MemoryManager:
                     "steps": workflow.steps,
                     "enabled": workflow.enabled,
                     "input_schema": workflow.input_schema,
+                    "output_spec": workflow.output_spec,
                     "created_at": workflow.created_at,
                     "updated_at": workflow.updated_at
                 }

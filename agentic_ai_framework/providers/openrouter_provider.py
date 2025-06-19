@@ -1,8 +1,5 @@
 """
 providers/openrouter_provider.py - OpenRouter LLM Provider
-
-Implementation of the BaseLLMProvider for OpenRouter's API.
-OpenRouter provides access to multiple LLM providers through a single API.
 """
 
 import aiohttp

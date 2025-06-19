@@ -1,8 +1,5 @@
 """
 providers/openai_provider.py - OpenAI LLM Provider
-
-Implementation of the BaseLLMProvider for OpenAI's API.
-Supports chat completions, streaming, and all OpenAI models.
 """
 
 import aiohttp
