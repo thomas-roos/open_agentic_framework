@@ -12,9 +12,11 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
             required: []
         },
         steps: workflow?.steps || [],
-        enabled: workflow?.enabled !== false
+        enabled: workflow?.enabled !== false,
+        output_spec: workflow?.output_spec || { extractions: [] }
     });
     const [saving, setSaving] = useState(false);
+    const [showAdvancedOutputSpec, setShowAdvancedOutputSpec] = useState(false);
 
     // Standardized Parameter Renderer
     const ParameterRenderer = {
@@ -524,6 +526,50 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
         ]);
     };
 
+    // Output Spec Handlers
+    const handleOutputSpecJsonChange = (e) => {
+        try {
+            const parsed = JSON.parse(e.target.value || '{}');
+            setFormData(prev => ({ ...prev, output_spec: parsed }));
+        } catch (err) {
+            // Ignore parse errors for now
+        }
+    };
+    const handleAddExtraction = () => {
+        setFormData(prev => ({
+            ...prev,
+            output_spec: {
+                ...prev.output_spec,
+                extractions: [...(prev.output_spec?.extractions || []), {
+                    name: '',
+                    type: 'path',
+                    query: '',
+                    default: '',
+                    format: 'text',
+                    find_criteria: {}
+                }]
+            }
+        }));
+    };
+    const handleUpdateExtraction = (idx, updates) => {
+        setFormData(prev => ({
+            ...prev,
+            output_spec: {
+                ...prev.output_spec,
+                extractions: prev.output_spec.extractions.map((ex, i) => i === idx ? { ...ex, ...updates } : ex)
+            }
+        }));
+    };
+    const handleRemoveExtraction = (idx) => {
+        setFormData(prev => ({
+            ...prev,
+            output_spec: {
+                ...prev.output_spec,
+                extractions: prev.output_spec.extractions.filter((_, i) => i !== idx)
+            }
+        }));
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         
@@ -542,7 +588,8 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
             // Remove the temporary id field from steps
             const workflowData = {
                 ...formData,
-                steps: formData.steps.map(({ id, ...step }) => step)
+                steps: formData.steps.map(({ id, ...step }) => step),
+                output_spec: formData.output_spec
             };
             
             if (workflow) {
@@ -991,6 +1038,123 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                     renderToolParameters(step, index)
                                 ])
                             )
+                    ]),
+
+                    // Output Spec Section
+                    React.createElement('div', {
+                        key: 'output-spec-section',
+                        className: 'form-group',
+                        style: { marginTop: '24px', marginBottom: '24px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px' }
+                    }, [
+                        React.createElement('div', { key: 'header', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } }, [
+                            React.createElement('label', { key: 'label', className: 'form-label', style: { fontWeight: 600 } }, 'Workflow Output Spec (Optional)'),
+                            React.createElement('button', {
+                                key: 'toggle',
+                                type: 'button',
+                                className: 'btn btn-secondary',
+                                style: { fontSize: '11px', padding: '2px 8px' },
+                                onClick: () => setShowAdvancedOutputSpec(v => !v)
+                            }, showAdvancedOutputSpec ? 'Simple JSON Editor' : 'Advanced Editor')
+                        ]),
+                        !showAdvancedOutputSpec && React.createElement('div', { key: 'json-editor', style: { marginTop: '8px' } }, [
+                            React.createElement('textarea', {
+                                key: 'textarea',
+                                className: 'form-textarea',
+                                value: JSON.stringify(formData.output_spec || {}, null, 2),
+                                onChange: handleOutputSpecJsonChange,
+                                placeholder: '{\n  "extractions": [ ... ]\n}'
+                            }),
+                            React.createElement('small', { key: 'help', style: { color: '#6b7280', fontSize: '10px' } }, 'Edit output_spec as JSON. Must be an object with an "extractions" array.')
+                        ]),
+                        showAdvancedOutputSpec && React.createElement('div', { key: 'advanced', style: { marginTop: '8px' } }, [
+                            React.createElement('div', { key: 'extractions-header', style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' } }, [
+                                React.createElement('span', { key: 'title', style: { fontWeight: 500 } }, 'Extractions'),
+                                React.createElement('button', {
+                                    key: 'add',
+                                    type: 'button',
+                                    className: 'btn btn-secondary',
+                                    style: { fontSize: '11px', padding: '2px 8px' },
+                                    onClick: handleAddExtraction
+                                }, React.createElement('i', { className: 'fas fa-plus', style: { marginRight: '4px' } }), 'Add Extraction')
+                            ]),
+                            (formData.output_spec?.extractions || []).length === 0 ? React.createElement('div', { key: 'empty', style: { color: '#64748b', fontSize: '12px', margin: '8px 0' } }, 'No extractions defined.') :
+                            formData.output_spec.extractions.map((ex, idx) => React.createElement('div', {
+                                key: idx,
+                                style: { border: '1px solid #d1d5db', borderRadius: '4px', padding: '8px', marginBottom: '8px', background: 'white', position: 'relative' }
+                            }, [
+                                React.createElement('button', {
+                                    key: 'remove',
+                                    type: 'button',
+                                    className: 'btn btn-danger',
+                                    onClick: () => handleRemoveExtraction(idx),
+                                    style: { position: 'absolute', top: '4px', right: '4px', fontSize: '10px', padding: '2px 6px' }
+                                }, '×'),
+                                React.createElement('div', { key: 'fields', style: { display: 'grid', gap: '6px', paddingRight: '30px' } }, [
+                                    React.createElement('input', {
+                                        key: 'name',
+                                        className: 'form-input',
+                                        type: 'text',
+                                        value: ex.name,
+                                        onChange: e => handleUpdateExtraction(idx, { name: e.target.value }),
+                                        placeholder: 'Extraction name (output key)',
+                                        style: { fontSize: '12px' }
+                                    }),
+                                    React.createElement('select', {
+                                        key: 'type',
+                                        className: 'form-select',
+                                        value: ex.type,
+                                        onChange: e => handleUpdateExtraction(idx, { type: e.target.value }),
+                                        style: { fontSize: '12px' }
+                                    }, [
+                                        React.createElement('option', { key: 'path', value: 'path' }, 'Path'),
+                                        React.createElement('option', { key: 'regex', value: 'regex' }, 'Regex'),
+                                        React.createElement('option', { key: 'literal', value: 'literal' }, 'Literal'),
+                                        React.createElement('option', { key: 'find', value: 'find' }, 'Find')
+                                    ]),
+                                    React.createElement('input', {
+                                        key: 'query',
+                                        className: 'form-input',
+                                        type: 'text',
+                                        value: ex.query,
+                                        onChange: e => handleUpdateExtraction(idx, { query: e.target.value }),
+                                        placeholder: 'Query (path, regex, or value)',
+                                        style: { fontSize: '12px' }
+                                    }),
+                                    React.createElement('input', {
+                                        key: 'default',
+                                        className: 'form-input',
+                                        type: 'text',
+                                        value: ex.default,
+                                        onChange: e => handleUpdateExtraction(idx, { default: e.target.value }),
+                                        placeholder: 'Default value',
+                                        style: { fontSize: '12px' }
+                                    }),
+                                    React.createElement('select', {
+                                        key: 'format',
+                                        className: 'form-select',
+                                        value: ex.format,
+                                        onChange: e => handleUpdateExtraction(idx, { format: e.target.value }),
+                                        style: { fontSize: '12px' }
+                                    }, [
+                                        React.createElement('option', { key: 'text', value: 'text' }, 'Text'),
+                                        React.createElement('option', { key: 'number', value: 'number' }, 'Number'),
+                                        React.createElement('option', { key: 'boolean', value: 'boolean' }, 'Boolean')
+                                    ]),
+                                    ex.type === 'find' && React.createElement('textarea', {
+                                        key: 'find_criteria',
+                                        className: 'form-textarea',
+                                        value: JSON.stringify(ex.find_criteria || {}, null, 2),
+                                        onChange: e => {
+                                            try {
+                                                handleUpdateExtraction(idx, { find_criteria: JSON.parse(e.target.value) });
+                                            } catch (err) {}
+                                        },
+                                        placeholder: '{ "array_path": "results", "match_field": "name", ... }',
+                                        style: { fontSize: '11px', fontFamily: 'monospace', minHeight: '40px' }
+                                    })
+                                ])
+                            ]))
+                        ])
                     ]),
 
                     // Enabled Checkbox

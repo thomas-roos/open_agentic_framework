@@ -147,6 +147,10 @@ class WorkflowDefinition(BaseModel):
         default=None, 
         description="JSON schema defining workflow input parameters"
     )
+    output_spec: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Specification for filtering or extracting workflow output. If None, returns full context."
+    )
 
 class WorkflowUpdate(BaseModel):
     """Model for updating an existing workflow"""
@@ -154,6 +158,7 @@ class WorkflowUpdate(BaseModel):
     steps: Optional[List[WorkflowStep]] = None
     enabled: Optional[bool] = None
     input_schema: Optional[Dict[str, Any]] = None
+    output_spec: Optional[Dict[str, Any]] = None
 
 class WorkflowInfo(BaseModel):
     """Model for workflow information response"""
@@ -165,6 +170,7 @@ class WorkflowInfo(BaseModel):
     created_at: datetime
     updated_at: datetime
     input_schema: Optional[Dict[str, Any]] = None
+    output_spec: Optional[Dict[str, Any]] = None
 
 class WorkflowExecutionRequest(BaseModel):
     """Model for workflow execution request"""

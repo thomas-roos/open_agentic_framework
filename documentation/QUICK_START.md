@@ -148,7 +148,51 @@ curl -X POST "http://localhost:8000/workflows" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "intelligent_site_monitor",
-    "description": "Advanced website monitoring with variable resolution",
+    "description": "Advanced website monitoring with variable resolution and output filtering",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "target_url": {
+          "type": "string",
+          "description": "Primary URL to monitor"
+        },
+        "backup_url": {
+          "type": "string",
+          "description": "Backup URL to monitor"
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Timeout in seconds",
+          "default": 10
+        }
+      },
+      "required": ["target_url", "backup_url"]
+    },
+    "output_spec": {
+      "extractions": [
+        {
+          "name": "primary_status",
+          "type": "path",
+          "query": "primary_status.status",
+          "default": "unknown",
+          "format": "text"
+        },
+        {
+          "name": "backup_status", 
+          "type": "path",
+          "query": "backup_status.status",
+          "default": "unknown",
+          "format": "text"
+        },
+        {
+          "name": "analysis",
+          "type": "path",
+          "query": "comprehensive_analysis",
+          "default": "",
+          "format": "text"
+        }
+      ]
+    },
     "steps": [
       {
         "type": "tool",
@@ -156,7 +200,7 @@ curl -X POST "http://localhost:8000/workflows" \
         "parameters": {
           "url": "{{target_url}}",
           "expected_status": 200,
-          "timeout": 10
+          "timeout": "{{timeout}}"
         },
         "context_key": "primary_status"
       },
@@ -166,7 +210,7 @@ curl -X POST "http://localhost:8000/workflows" \
         "parameters": {
           "url": "{{backup_url}}",
           "expected_status": 200,
-          "timeout": 10
+          "timeout": "{{timeout}}"
         },
         "context_key": "backup_status"
       },
@@ -198,6 +242,52 @@ curl -X POST "http://localhost:8000/workflows/intelligent_site_monitor/execute" 
 2. Checks GitHub.com status with variables  
 3. AI agent analyzes both results using **nested variable access**
 4. Provides intelligent comparative analysis
+
+### Workflow Output Filtering
+
+The workflow above includes **output filtering** via the `output_spec` field. This means instead of returning all workflow data, you get only the specific fields you need:
+
+**Filtered Output (with output_spec):**
+```json
+{
+  "workflow_name": "intelligent_site_monitor",
+  "status": "completed", 
+  "steps_executed": 3,
+  "output": {
+    "primary_status": "online",
+    "backup_status": "online", 
+    "analysis": "Both sites are performing well..."
+  },
+  "message": "Extracted 3 values"
+}
+```
+
+**Full Output (without output_spec):**
+```json
+{
+  "workflow_name": "intelligent_site_monitor",
+  "status": "completed",
+  "steps_executed": 3,
+  "results": [
+    { "step": 1, "type": "tool", "name": "website_monitor", "result": {...} },
+    { "step": 2, "type": "tool", "name": "website_monitor", "result": {...} },
+    { "step": 3, "type": "agent", "name": "website_guardian", "result": "..." }
+  ],
+  "final_context": {
+    "target_url": "https://google.com",
+    "backup_url": "https://github.com", 
+    "primary_status": {...},
+    "backup_status": {...},
+    "comprehensive_analysis": "..."
+  }
+}
+```
+
+**Benefits of Output Filtering:**
+- **Cleaner responses** - Only relevant data
+- **Smaller payloads** - Reduced bandwidth usage  
+- **Better integration** - Easier to consume in other systems
+- **Focused results** - No need to parse through full context
 
 ## Step 6: Schedule Automated Monitoring (1 minute)
 

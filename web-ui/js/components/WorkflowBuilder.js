@@ -72,12 +72,12 @@ const WorkflowBuilder = () => {
         try {
             setExecuting(selectedWorkflow.name);
             const result = await api.executeWorkflow(selectedWorkflow.name, inputData);
-            
-            // Show result in a nice format
-            const resultMessage = `Workflow "${selectedWorkflow.name}" executed successfully!\n\n` +
-                                `Input: ${JSON.stringify(inputData, null, 2)}\n\n` +
-                                `Result: ${typeof result === 'string' ? result : JSON.stringify(result, null, 2)}`;
-            
+            let resultMessage = `Workflow "${selectedWorkflow.name}" executed successfully!\n\n` +
+                                `Input: ${JSON.stringify(inputData, null, 2)}\n\n`;
+            if (result && result.output) {
+                resultMessage += `Filtered Output (output_spec):\n${JSON.stringify(result.output, null, 2)}\n\n`;
+            }
+            resultMessage += `Full Result (debug):\n${typeof result === 'string' ? result : JSON.stringify(result, null, 2)}`;
             alert(resultMessage);
         } catch (error) {
             alert('Failed to execute workflow: ' + error.message);

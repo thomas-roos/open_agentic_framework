@@ -196,22 +196,61 @@ A specific capability or function that agents can use to interact with external 
 - `http_client` - Make HTTP requests to APIs
 
 ### **Workflow**
-A sequence of steps that can include both agent tasks and tool executions, with **advanced variable passing** between steps.
+A sequence of steps that can include both agent tasks and tool executions, with **advanced variable passing** between steps, **input validation**, and **output filtering**.
 
 ```json
 {
   "name": "website_health_check",
+  "description": "Comprehensive website monitoring with input validation and output filtering",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "target_url": {
+        "type": "string",
+        "description": "URL to monitor"
+      },
+      "alert_email": {
+        "type": "string", 
+        "description": "Email for alerts"
+      },
+      "timeout": {
+        "type": "integer",
+        "description": "Timeout in seconds",
+        "default": 10
+      }
+    },
+    "required": ["target_url", "alert_email"]
+  },
+  "output_spec": {
+    "extractions": [
+      {
+        "name": "status_summary",
+        "type": "path",
+        "query": "website_status.status",
+        "default": "unknown",
+        "format": "text"
+      },
+      {
+        "name": "response_time",
+        "type": "path", 
+        "query": "website_status.response_time_ms",
+        "default": "0",
+        "format": "number"
+      }
+    ]
+  },
   "steps": [
     {
       "type": "tool",
       "name": "website_monitor", 
-      "parameters": {"url": "https://example.com"},
-      "context_key": "status"
+      "parameters": {"url": "{{target_url}}", "timeout": "{{timeout}}"},
+      "context_key": "website_status"
     },
     {
       "type": "agent",
       "name": "website_guardian",
-      "task": "Analyze status: {{status.response_time}}ms response from {{status.url}} and send alerts if needed"
+      "task": "Analyze status: {{website_status.response_time}}ms response from {{website_status.url}} and send alerts if needed",
+      "context_key": "analysis_result"
     }
   ]
 }
@@ -272,21 +311,135 @@ Access nested properties from previous workflow steps:
 }
 ```
 
-### Tool Configuration per Agent
+## Workflow Output Filtering
 
-Configure tools differently for each agent:
+Control what data is returned from workflow execution using the `output_spec` field. This allows you to extract specific fields from the workflow context instead of returning all data.
+
+### Basic Output Filtering
+
+```json
+{
+  "name": "license_assessment_workflow",
+  "output_spec": {
+    "extractions": [
+      {
+        "name": "risk_assessment",
+        "type": "path",
+        "query": "risk_assessment",
+        "default": "",
+        "format": "text"
+      }
+    ]
+  }
+}
+```
+
+**Result:** Only the `risk_assessment` data is returned in the `output` field, not the full workflow context.
+
+### Advanced Output Filtering
+
+Extract multiple specific fields with different extraction types:
+
+```json
+{
+  "name": "comprehensive_monitoring",
+  "output_spec": {
+    "extractions": [
+      {
+        "name": "overall_risk",
+        "type": "path",
+        "query": "risk_assessment.OVERALL RISK LEVEL",
+        "default": "UNKNOWN",
+        "format": "text"
+      },
+      {
+        "name": "security_score",
+        "type": "path", 
+        "query": "risk_assessment.SECURITY ASSESSMENT.ClearlyDefined Score",
+        "default": "0",
+        "format": "number"
+      },
+      {
+        "name": "license_breakdown",
+        "type": "path",
+        "query": "risk_assessment.LICENSE ANALYSIS.License Breakdown",
+        "default": "{}",
+        "format": "text"
+      }
+    ]
+  }
+}
+```
+
+### Extraction Types
+
+- **`path`** - Extract data using dot notation (e.g., `"risk_assessment.OVERALL RISK LEVEL"`)
+- **`regex`** - Extract using regular expressions
+- **`literal`** - Return a literal value
+- **`find`** - Find data in arrays using criteria
+
+### Format Options
+
+- **`text`** - Return as-is (preserves JSON objects/arrays)
+- **`number`** - Convert to number
+- **`boolean`** - Convert to boolean
+
+### Input Validation
+
+Use `input_schema` to validate workflow inputs:
+
+```json
+{
+  "name": "validated_workflow",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "package_name": {
+        "type": "string",
+        "description": "Package name to analyze"
+      },
+      "analysis_depth": {
+        "type": "string",
+        "enum": ["basic", "comprehensive"],
+        "default": "basic"
+      }
+    },
+    "required": ["package_name"]
+  }
+}
+```
+
+**Benefits:**
+- **Clean Output** - Only relevant data is returned
+- **Reduced Payload** - Smaller response sizes
+- **Better Integration** - Easier to consume in other systems
+- **Input Validation** - Ensures required parameters are provided
+- **Type Safety** - Validates input types and formats
+
+## Tool Configuration per Agent
+
+Configure tools differently for each agent to customize their behavior:
+
+### Email Sender Configuration
 
 ```bash
 curl -X POST "http://localhost:8000/agents" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "notification_agent",
+    "role": "Notification Specialist",
+    "goals": "Send professional email notifications and alerts",
+    "backstory": "You are an experienced communication specialist who sends clear, actionable notifications.",
     "tools": ["email_sender", "webhook_client"],
+    "ollama_model": "granite3.2:2b",
+    "enabled": true,
     "tool_configs": {
       "email_sender": {
         "smtp_host": "smtp.gmail.com",
         "smtp_port": 587,
-        "from_email": "AI Assistant <notifications@company.com>",
+        "smtp_username": "alerts@yourcompany.com",
+        "smtp_password": "your-app-password",
+        "from_email": "AI Assistant <alerts@yourcompany.com>",
         "default_template": "professional"
       },
       "webhook_client": {
@@ -296,6 +449,40 @@ curl -X POST "http://localhost:8000/agents" \
     }
   }'
 ```
+
+### Website Monitor Configuration
+
+```bash
+curl -X POST "http://localhost:8000/agents" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "monitoring_agent",
+    "role": "System Monitoring Specialist",
+    "goals": "Monitor system health and performance",
+    "backstory": "You are a vigilant system administrator who monitors infrastructure and reports issues.",
+    "tools": ["website_monitor", "http_client"],
+    "ollama_model": "deepseek-r1:1.5b",
+    "enabled": true,
+    "tool_configs": {
+      "website_monitor": {
+        "default_timeout": 15,
+        "retry_attempts": 2,
+        "expected_status_codes": [200, 301, 302]
+      },
+      "http_client": {
+        "default_timeout": 30,
+        "max_redirects": 5,
+        "verify_ssl": true
+      }
+    }
+  }'
+```
+
+**Benefits of Tool Configuration:**
+- **Customized Behavior** - Each agent can have different tool settings
+- **Environment-Specific** - Configure for development, staging, or production
+- **Security** - Set different credentials per agent
+- **Performance** - Optimize timeouts and retry settings per use case
 
 ## Enhanced Memory Management
 
@@ -406,13 +593,57 @@ curl -X POST "http://localhost:8000/workflows" \
   -d '{
     "name": "website_health_check",
     "description": "Comprehensive website monitoring with intelligent alerts",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "target_url": {
+          "type": "string",
+          "description": "URL to monitor"
+        },
+        "alert_email": {
+          "type": "string",
+          "description": "Email for alerts"
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Timeout in seconds",
+          "default": 10
+        }
+      },
+      "required": ["target_url", "alert_email"]
+    },
+    "output_spec": {
+      "extractions": [
+        {
+          "name": "status",
+          "type": "path",
+          "query": "website_status.status",
+          "default": "unknown",
+          "format": "text"
+        },
+        {
+          "name": "response_time",
+          "type": "path",
+          "query": "website_status.response_time_ms",
+          "default": "0",
+          "format": "number"
+        },
+        {
+          "name": "analysis_summary",
+          "type": "path",
+          "query": "alert_result",
+          "default": "",
+          "format": "text"
+        }
+      ]
+    },
     "steps": [
       {
         "type": "tool",
         "name": "website_monitor",
         "parameters": {
           "url": "{{target_url}}",
-          "timeout": 10,
+          "timeout": "{{timeout}}",
           "expected_status": 200
         },
         "context_key": "website_status"
