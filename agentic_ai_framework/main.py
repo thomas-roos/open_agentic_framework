@@ -1,8 +1,5 @@
 """
 main.py - FastAPI Application Entry Point (Enhanced with Multi-Provider LLM Support)
-
-Updated to use the new LLMProviderManager instead of OllamaClient.
-Maintains backward compatibility while adding multi-provider support.
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks

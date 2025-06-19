@@ -1,10 +1,5 @@
 """
 managers/memory_manager.py - Enhanced Database Management with Recurring Tasks
-
-Added recurring task support:
-- Database schema updates for recurring schedules
-- Cron and simple pattern support
-- Execution tracking and failure handling
 """
 
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, JSON, func

@@ -1,7 +1,5 @@
 """
 config.py - Enhanced Configuration with Multi-Provider Support
-
-Configuration management for the Open Agentic Framework with multi-provider LLM support.
 """
 
 import os

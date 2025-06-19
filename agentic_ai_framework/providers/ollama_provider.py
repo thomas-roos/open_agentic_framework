@@ -1,8 +1,5 @@
 """
 providers/ollama_provider.py - Ollama LLM Provider
-
-Implementation of the BaseLLMProvider for Ollama, refactored from the original
-OllamaClient to work with the new provider interface.
 """
 
 import aiohttp

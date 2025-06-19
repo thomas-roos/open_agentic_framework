@@ -1,7 +1,5 @@
 """
 managers/workflow_manager.py - Debug Version with Enhanced Logging
-
-This version includes extensive debugging to identify variable resolution issues.
 """
 
 import re

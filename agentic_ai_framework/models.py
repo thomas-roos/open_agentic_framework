@@ -1,10 +1,5 @@
 """
 models.py - Enhanced Pydantic Data Models with Recurring Task Support
-
-Added new models for:
-- Recurring task scheduling
-- Task execution tracking
-- Enhanced scheduling with cron and simple patterns
 """
 
 from pydantic import BaseModel, Field, validator

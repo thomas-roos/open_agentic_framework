@@ -1,8 +1,5 @@
 """
 managers/agent_manager.py - FIXED: Enhanced Agent Manager with Context Filtering
-
-Key Fix: Only pass relevant context data to agents based on their specific needs.
-This prevents data overload while preserving all agent identity information.
 """
 
 import json

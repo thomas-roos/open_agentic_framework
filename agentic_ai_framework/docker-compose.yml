@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Open Agentic Framework Application
   agentic-ai:

@@ -1,8 +1,5 @@
 """
 providers/base_llm_provider.py - Base LLM Provider Interface
-
-Abstract base class for all LLM providers to ensure consistent interface
-across different providers (Ollama, OpenAI, OpenRouter, etc.)
 """
 
 from abc import ABC, abstractmethod
