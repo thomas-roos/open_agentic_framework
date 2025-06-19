@@ -94,9 +94,28 @@ class Config:
                 "default_model": os.getenv("OPENROUTER_DEFAULT_MODEL", "openai/gpt-3.5-turbo")
             }
         
-        # Fallback order
-        fallback_order = os.getenv("LLM_FALLBACK_ORDER", "ollama,openai,openrouter").split(",")
+        # Bedrock Provider Configuration
+        bedrock_enabled = os.getenv("BEDROCK_ENABLED", "false").lower() == "true"
+        bedrock_access_key = os.getenv("BEDROCK_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID")
+        bedrock_secret_key = os.getenv("BEDROCK_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY")
+        
+        if bedrock_enabled:
+            providers["bedrock"] = {
+                "enabled": True,
+                "region_name": os.getenv("BEDROCK_REGION", "us-east-1"),
+                "aws_access_key_id": bedrock_access_key,
+                "aws_secret_access_key": bedrock_secret_key,
+                "timeout": int(os.getenv("BEDROCK_TIMEOUT", "300")),
+                "default_model": os.getenv("BEDROCK_DEFAULT_MODEL", "anthropic.claude-3-sonnet-20240229-v1:0")
+            }
+        
+        # Fallback order - ensure Ollama is first by default
+        fallback_order = os.getenv("LLM_FALLBACK_ORDER", "ollama,bedrock,openai,openrouter").split(",")
         fallback_order = [p.strip() for p in fallback_order if p.strip()]
+        
+        # Ensure Ollama is in fallback order if enabled
+        if ollama_enabled and "ollama" not in fallback_order:
+            fallback_order.insert(0, "ollama")
         
         return {
             "default_provider": default_provider,

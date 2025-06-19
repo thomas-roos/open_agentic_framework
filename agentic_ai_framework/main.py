@@ -363,13 +363,15 @@ class ProviderConfigUpdate(BaseModel):
     base_url: Optional[str] = None
     default_model: Optional[str] = None
     timeout: Optional[int] = None
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
 
 @app.post("/providers/{provider_name}/configure")
 async def configure_provider(provider_name: str, config_update: ProviderConfigUpdate):
     """Dynamically configure a provider without restart"""
     try:
         # Validate provider exists
-        valid_providers = ["openai", "openrouter", "ollama"]
+        valid_providers = ["openai", "openrouter", "ollama", "bedrock"]
         if provider_name not in valid_providers:
             raise HTTPException(status_code=400, detail=f"Invalid provider. Must be one of: {valid_providers}")
         
@@ -442,6 +444,10 @@ async def get_provider_config(provider_name: str):
         safe_config = provider_config.copy()
         if "api_key" in safe_config:
             safe_config["api_key"] = "***" + safe_config["api_key"][-4:] if len(safe_config["api_key"]) > 4 else "***"
+        if "aws_access_key_id" in safe_config:
+            safe_config["aws_access_key_id"] = "***" + safe_config["aws_access_key_id"][-4:] if len(safe_config["aws_access_key_id"]) > 4 else "***"
+        if "aws_secret_access_key" in safe_config:
+            safe_config["aws_secret_access_key"] = "***" + safe_config["aws_secret_access_key"][-4:] if len(safe_config["aws_secret_access_key"]) > 4 else "***"
         
         return {
             "provider": provider_name,

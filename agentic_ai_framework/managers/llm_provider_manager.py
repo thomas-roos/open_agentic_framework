@@ -4,7 +4,7 @@ managers/llm_provider_manager.py - LLM Provider Management System
 
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -15,6 +15,7 @@ from providers.base_llm_provider import (
 from providers.ollama_provider import OllamaProvider
 from providers.openai_provider import OpenAIProvider
 from providers.openrouter_provider import OpenRouterProvider
+from providers.bedrock_provider import BedrockProvider
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,8 @@ class LLMProviderManager:
             return OpenAIProvider(config)
         elif provider_name == "openrouter":
             return OpenRouterProvider(config)
+        elif provider_name == "bedrock":
+            return BedrockProvider(provider_name, config)
         else:
             logger.error(f"Unknown provider type: {provider_name}")
             return None
@@ -127,7 +130,7 @@ class LLMProviderManager:
         chat_history: Optional[List[Dict[str, str]]] = None,
         stream: bool = False,
         **kwargs
-    ) -> Union[GenerationResponse, str]:
+    ) -> Union[GenerationResponse, str, AsyncGenerator[str, None]]:
         """
         Generate a response using the appropriate provider
         
@@ -142,7 +145,7 @@ class LLMProviderManager:
             **kwargs: Additional generation parameters
             
         Returns:
-            GenerationResponse object or string (for backward compatibility)
+            GenerationResponse object, string (for backward compatibility), or AsyncGenerator for streaming
         """
         # Convert to new message format
         messages = []
@@ -199,7 +202,7 @@ class LLMProviderManager:
         config: GenerationConfig,
         stream: bool,
         failed_provider: str
-    ) -> Union[GenerationResponse, str]:
+    ) -> Union[GenerationResponse, str, AsyncGenerator[str, None]]:
         """Try fallback providers in order"""
         for fallback_provider_name in self.fallback_order:
             if fallback_provider_name == failed_provider:
@@ -225,7 +228,7 @@ class LLMProviderManager:
                 logger.warning(f"Fallback provider {fallback_provider_name} also failed: {e}")
                 continue
         
-        raise LLMProviderError("All providers failed", provider="all")
+        raise LLMProviderError("All providers failed", "all")
     
     def _resolve_model(self, model: Optional[str]) -> tuple[str, str]:
         """
@@ -239,8 +242,23 @@ class LLMProviderManager:
         """
         if not model:
             # Use default provider and its default model
-            default_provider = self.providers[self.default_provider]
-            return self.default_provider, default_provider.default_model
+            if self.default_provider in self.providers:
+                default_provider = self.providers[self.default_provider]
+                # Get default model from provider config
+                default_model = default_provider.config.get("default_model", "granite3.2:2b")
+                return self.default_provider, default_model
+            else:
+                # Fallback to first available provider
+                if self.providers:
+                    first_provider_name = list(self.providers.keys())[0]
+                    first_provider = self.providers[first_provider_name]
+                    first_default_model = first_provider.config.get("default_model", "granite3.2:2b")
+                    logger.warning(f"Default provider {self.default_provider} not available, using {first_provider_name}")
+                    return first_provider_name, first_default_model
+                else:
+                    # No providers available - this should not happen after initialization
+                    logger.error("No LLM providers available")
+                    raise LLMProviderError("No LLM providers available", "none")
         
         # Check if model includes provider prefix
         if ":" in model:
@@ -257,13 +275,24 @@ class LLMProviderManager:
         
         # Fallback to default provider
         logger.warning(f"Model {model} not found in any provider, using default provider")
-        return self.default_provider, model
+        if self.default_provider in self.providers:
+            return self.default_provider, model
+        else:
+            # Fallback to first available provider
+            if self.providers:
+                first_provider_name = list(self.providers.keys())[0]
+                logger.warning(f"Default provider {self.default_provider} not available, using {first_provider_name}")
+                return first_provider_name, model
+            else:
+                logger.error("No LLM providers available")
+                raise LLMProviderError("No LLM providers available", "none")
     
     def _find_similar_model(self, original_model: str, provider_name: str) -> str:
         """Find a similar model in the given provider"""
         if provider_name not in self.provider_models:
-            # Return provider's default model
-            return self.providers[provider_name].default_model
+            # Return provider's default model from config
+            provider = self.providers[provider_name]
+            return provider.config.get("default_model", "granite3.2:2b")
         
         models = self.provider_models[provider_name]
         
@@ -295,8 +324,9 @@ class LLMProviderManager:
         if models:
             return models[0].name
         
-        # Return provider's default model
-        return self.providers[provider_name].default_model
+        # Return provider's default model from config
+        provider = self.providers[provider_name]
+        return provider.config.get("default_model", "granite3.2:2b")
     
     async def health_check(self) -> Dict[str, bool]:
         """Check health of all providers"""

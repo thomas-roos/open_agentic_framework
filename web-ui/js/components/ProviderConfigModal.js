@@ -4,11 +4,14 @@ const ProviderConfigModal = ({ provider, onClose, onSave }) => {
     const { useState, useEffect } = React;
 
     const [formData, setFormData] = useState({
+        provider_name: '',
         enabled: true,
         api_key: '',
         base_url: '',
         default_model: '',
-        timeout: 120
+        timeout: 120,
+        aws_access_key_id: '',
+        aws_secret_access_key: ''
     });
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -19,6 +22,13 @@ const ProviderConfigModal = ({ provider, onClose, onSave }) => {
         }
     }, [provider]);
 
+    // Update form when provider_name changes (for new providers)
+    useEffect(() => {
+        if (!provider && formData.provider_name) {
+            updateFormData('base_url', getDefaultBaseUrl(formData.provider_name));
+        }
+    }, [formData.provider_name, provider]);
+
     const loadProviderConfig = async () => {
         try {
             setLoading(true);
@@ -28,7 +38,9 @@ const ProviderConfigModal = ({ provider, onClose, onSave }) => {
                 api_key: config.config.api_key || '',
                 base_url: config.config.base_url || getDefaultBaseUrl(provider),
                 default_model: config.config.default_model || '',
-                timeout: config.config.timeout || 120
+                timeout: config.config.timeout || 120,
+                aws_access_key_id: config.config.aws_access_key_id || '',
+                aws_secret_access_key: config.config.aws_secret_access_key || ''
             });
         } catch (error) {
             console.error('Failed to load provider config:', error);
@@ -38,7 +50,9 @@ const ProviderConfigModal = ({ provider, onClose, onSave }) => {
                 api_key: '',
                 base_url: getDefaultBaseUrl(provider),
                 default_model: '',
-                timeout: 120
+                timeout: 120,
+                aws_access_key_id: '',
+                aws_secret_access_key: ''
             });
         } finally {
             setLoading(false);
@@ -53,6 +67,8 @@ const ProviderConfigModal = ({ provider, onClose, onSave }) => {
                 return 'https://api.openai.com/v1';
             case 'openrouter':
                 return 'https://openrouter.ai/api/v1';
+            case 'bedrock':
+                return 'us-east-1';
             default:
                 return '';
         }
@@ -80,6 +96,13 @@ const ProviderConfigModal = ({ provider, onClose, onSave }) => {
                     apiKeyRequired: true,
                     baseUrlDefault: 'https://openrouter.ai/api/v1',
                     notes: 'Requires OpenRouter API key from openrouter.ai'
+                };
+            case 'bedrock':
+                return {
+                    description: 'AWS Bedrock models (Claude, Titan, Llama)',
+                    apiKeyRequired: true,
+                    baseUrlDefault: 'us-east-1',
+                    notes: 'Requires AWS credentials. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables or use IAM roles.'
                 };
             default:
                 return {
@@ -132,7 +155,7 @@ const ProviderConfigModal = ({ provider, onClose, onSave }) => {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
-    const providerInfo = getProviderDocumentation(provider || 'custom');
+    const providerInfo = getProviderDocumentation(provider || formData.provider_name || 'custom');
 
     if (loading) {
         return React.createElement('div', {
@@ -223,7 +246,8 @@ const ProviderConfigModal = ({ provider, onClose, onSave }) => {
                             React.createElement('option', { key: 'empty', value: '' }, 'Select provider type'),
                             React.createElement('option', { key: 'ollama', value: 'ollama' }, 'Ollama (Local)'),
                             React.createElement('option', { key: 'openai', value: 'openai' }, 'OpenAI'),
-                            React.createElement('option', { key: 'openrouter', value: 'openrouter' }, 'OpenRouter')
+                            React.createElement('option', { key: 'openrouter', value: 'openrouter' }, 'OpenRouter'),
+                            React.createElement('option', { key: 'bedrock', value: 'bedrock' }, 'AWS Bedrock')
                         ])
                     ]),
 
@@ -251,8 +275,8 @@ const ProviderConfigModal = ({ provider, onClose, onSave }) => {
                         ])
                     ),
 
-                    // API Key (if required)
-                    providerInfo.apiKeyRequired && React.createElement('div', { 
+                    // API Key (if required and not Bedrock)
+                    providerInfo.apiKeyRequired && (provider || formData.provider_name) !== 'bedrock' && React.createElement('div', { 
                         key: 'apikey-group',
                         className: 'form-group' 
                     }, [
@@ -269,6 +293,53 @@ const ProviderConfigModal = ({ provider, onClose, onSave }) => {
                             placeholder: 'Enter your API key',
                             required: providerInfo.apiKeyRequired
                         })
+                    ]),
+
+                    // AWS Credentials (for Bedrock)
+                    (provider || formData.provider_name) === 'bedrock' && React.createElement('div', { 
+                        key: 'aws-credentials',
+                        style: { marginBottom: '20px' }
+                    }, [
+                        React.createElement('h4', {
+                            key: 'title',
+                            style: { margin: '0 0 12px 0', color: '#374151', fontSize: '16px' }
+                        }, 'AWS Credentials'),
+                        React.createElement('div', { 
+                            key: 'access-key-group',
+                            className: 'form-group' 
+                        }, [
+                            React.createElement('label', { 
+                                key: 'label',
+                                className: 'form-label' 
+                            }, 'AWS Access Key ID'),
+                            React.createElement('input', {
+                                key: 'input',
+                                className: 'form-input',
+                                type: 'text',
+                                value: formData.aws_access_key_id || '',
+                                onChange: e => updateFormData('aws_access_key_id', e.target.value),
+                                placeholder: 'Enter your AWS Access Key ID',
+                                required: true
+                            })
+                        ]),
+                        React.createElement('div', { 
+                            key: 'secret-key-group',
+                            className: 'form-group' 
+                        }, [
+                            React.createElement('label', { 
+                                key: 'label',
+                                className: 'form-label' 
+                            }, 'AWS Secret Access Key'),
+                            React.createElement('input', {
+                                key: 'input',
+                                className: 'form-input',
+                                type: 'password',
+                                value: formData.aws_secret_access_key || '',
+                                onChange: e => updateFormData('aws_secret_access_key', e.target.value),
+                                placeholder: 'Enter your AWS Secret Access Key',
+                                required: true
+                            })
+                        ])
                     ]),
 
                     // Base URL

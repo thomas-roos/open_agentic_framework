@@ -472,10 +472,14 @@ class ModelInstallRequest(BaseModel):
     """Model for installing a new model"""
     model_name: str = Field(..., description="Name of the model to install")
     wait_for_completion: bool = Field(default=True, description="Wait for installation to complete")
+    
+    model_config = {"protected_namespaces": ()}
 
 class ModelDeleteRequest(BaseModel):
     """Model for deleting a model"""
     model_name: str = Field(..., description="Name of the model to delete")
+    
+    model_config = {"protected_namespaces": ()}
 
 # NEW: Recurring Task Utilities
 class RecurrencePatternHelper(BaseModel):
