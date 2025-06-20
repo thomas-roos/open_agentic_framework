@@ -697,64 +697,6 @@ Once the framework is running, access the web interface at:
 
 **http://localhost:8000/ui**
 
-### Web UI Features
-
-The integrated web interface provides comprehensive management capabilities:
-
-#### **Dashboard**
-- Real-time system status overview
-- Provider health monitoring
-- Model availability and performance
-- Memory usage statistics
-- Active scheduled tasks
-
-#### **Agent Management**
-- Create and configure AI agents
-- Set roles, goals, and backstories
-- Assign tools and models
-- Execute agents with custom tasks
-- View agent memory and history
-
-#### **Workflow Builder**
-- Visual workflow creation and editing
-- Drag-and-drop step configuration
-- Input validation schema setup
-- Output filtering configuration
-- Workflow execution and monitoring
-
-#### **Provider Configuration**
-- Manage LLM providers (Ollama, OpenAI, OpenRouter, AWS Bedrock)
-- Configure API keys and settings
-- Test provider connectivity
-- Monitor model availability
-- Dynamic provider enabling/disabling
-
-#### **Task Scheduling**
-- Schedule recurring tasks with cron expressions
-- Set up automated agent and workflow execution
-- Monitor scheduled task status
-- View execution history and results
-- Enable/disable scheduled tasks
-
-#### **Tool Management**
-- Browse available tools
-- Test tool functionality
-- View tool documentation
-- Configure tool parameters
-
-#### **Memory Management**
-- Monitor agent memory usage
-- Clean up old memory entries
-- View memory statistics
-- Manage memory retention policies
-
-### Web UI Benefits
-
-- **No API Knowledge Required** - Intuitive interface for non-technical users
-- **Real-time Monitoring** - Live updates of system status and performance
-- **Visual Workflow Builder** - Easy creation of complex workflows
-- **Integrated Management** - All framework features in one interface
-- **Responsive Design** - Works on desktop and mobile devices
 
 ## Contributing
 
