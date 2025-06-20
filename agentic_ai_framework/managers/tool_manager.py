@@ -14,16 +14,18 @@ logger = logging.getLogger(__name__)
 class ToolManager:
     """Manages tool discovery, registration, and execution"""
     
-    def __init__(self, memory_manager, tools_directory: str = "tools"):
+    def __init__(self, memory_manager, tools_directory: str = "tools", config=None):
         """
         Initialize tool manager
         
         Args:
             memory_manager: Memory manager for persistence
             tools_directory: Directory containing tool implementations
+            config: Configuration object for tools that need it
         """
         self.memory_manager = memory_manager
         self.tools_directory = tools_directory
+        self.config = config
         self.loaded_tools = {}
         logger.info(f"Initialized tool manager with directory: {tools_directory}")
     
@@ -105,6 +107,10 @@ class ToolManager:
             tool_instance: Instance of the tool
             class_name: Name of the tool class
         """
+        # Set dependencies if the tool supports it
+        if hasattr(tool_instance, 'set_dependencies'):
+            tool_instance.set_dependencies(self.memory_manager, self.config)
+        
         # Store in memory
         self.loaded_tools[tool_instance.name] = tool_instance
         

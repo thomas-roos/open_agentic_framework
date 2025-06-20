@@ -2,10 +2,10 @@
 main.py - FastAPI Application Entry Point (Enhanced with Multi-Provider LLM Support)
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 import uvicorn
 import asyncio
 import logging
@@ -20,9 +20,12 @@ from managers.tool_manager import ToolManager
 from managers.agent_manager import AgentManager
 from managers.workflow_manager import WorkflowManager
 from managers.model_warmup_manager import ModelWarmupManager, ModelWarmupStatus
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from models import ScheduledTaskDefinition, ScheduledTaskUpdate, TaskExecutionInfo, RecurrenceType
 import os
+import json
+import zipfile
+from pathlib import Path
 
 
 # Configure logging
@@ -59,7 +62,7 @@ config = Config()
 # Initialize managers
 llm_manager = LLMProviderManager(config.llm_config)
 memory_manager = MemoryManager(config.database_path)
-tool_manager = ToolManager(memory_manager, config.tools_directory)
+tool_manager = ToolManager(memory_manager, config.tools_directory, config)
 agent_manager = AgentManager(llm_manager, memory_manager, tool_manager, config)
 workflow_manager = WorkflowManager(agent_manager, tool_manager, memory_manager)
 warmup_manager = ModelWarmupManager(llm_manager, memory_manager, config)
@@ -1319,6 +1322,461 @@ async def validate_recurrence_pattern(request: PatternValidationRequest):
             "is_valid": False,
             "error": str(e)
         }
+
+
+# Backup and Restore Endpoints
+class BackupExportRequest(BaseModel):
+    """Request model for backup export"""
+    export_path: Optional[str] = Field(default="backups", description="Directory path to save the backup files")
+    include_memory: Optional[bool] = Field(default=False, description="Whether to include agent memory/conversation history")
+    include_config: Optional[bool] = Field(default=True, description="Whether to include system configuration")
+    include_tools: Optional[bool] = Field(default=True, description="Whether to include tool definitions")
+    include_scheduled_tasks: Optional[bool] = Field(default=True, description="Whether to include scheduled tasks")
+    create_zip: Optional[bool] = Field(default=True, description="Whether to create a zip file containing all exports")
+    backup_name: Optional[str] = Field(default=None, description="Custom name for the backup")
+
+class BackupImportRequest(BaseModel):
+    """Request model for backup import"""
+    backup_path: str = Field(..., description="Path to backup directory or zip file")
+    import_agents: Optional[bool] = Field(default=True, description="Whether to import agents")
+    import_workflows: Optional[bool] = Field(default=True, description="Whether to import workflows")
+    import_tools: Optional[bool] = Field(default=True, description="Whether to import tool definitions")
+    import_scheduled_tasks: Optional[bool] = Field(default=True, description="Whether to import scheduled tasks")
+    import_memory: Optional[bool] = Field(default=False, description="Whether to import agent memory/conversation history")
+    overwrite_existing: Optional[bool] = Field(default=False, description="Whether to overwrite existing entities with the same name")
+    dry_run: Optional[bool] = Field(default=False, description="Whether to perform a dry run without actually importing")
+
+@app.post("/backup/export")
+async def export_backup(request: BackupExportRequest):
+    """Export agents, workflows, tools, and configuration to backup files"""
+    try:
+        # Create backup directory
+        backup_dir = Path(request.export_path or "backups")
+        backup_dir.mkdir(exist_ok=True)
+        
+        # Generate backup name with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = request.backup_name or f"backup_{timestamp}"
+        backup_path = backup_dir / backup_name
+        backup_path.mkdir(exist_ok=True)
+        
+        backup_data = {
+            "metadata": {
+                "timestamp": datetime.now().isoformat(),
+                "version": "1.0",
+                "backup_name": backup_name,
+                "options": request.dict()
+            },
+            "agents": [],
+            "workflows": [],
+            "tools": [],
+            "scheduled_tasks": [],
+            "config": {}
+        }
+        
+        # Export agents
+        if True:  # Always export agents
+            agents = memory_manager.get_all_agents()
+            backup_data["agents"] = agents
+            logger.info(f"Exported {len(agents)} agents")
+        
+        # Export workflows
+        if True:  # Always export workflows
+            workflows = memory_manager.get_all_workflows()
+            backup_data["workflows"] = workflows
+            logger.info(f"Exported {len(workflows)} workflows")
+        
+        # Export tools
+        if request.include_tools:
+            tools = memory_manager.get_all_tools()
+            backup_data["tools"] = tools
+            logger.info(f"Exported {len(tools)} tools")
+        
+        # Export scheduled tasks
+        if request.include_scheduled_tasks:
+            scheduled_tasks = memory_manager.get_all_scheduled_tasks()
+            backup_data["scheduled_tasks"] = scheduled_tasks
+            logger.info(f"Exported {len(scheduled_tasks)} scheduled tasks")
+        
+        # Export configuration
+        if request.include_config:
+            backup_data["config"] = {
+                "llm_config": config.llm_config,
+                "database_path": config.database_path,
+                "tools_directory": config.tools_directory,
+                "api_host": config.api_host,
+                "api_port": config.api_port,
+                "max_agent_memory_entries": config.max_agent_memory_entries,
+                "memory_cleanup_interval": config.memory_cleanup_interval
+            }
+            logger.info("Exported system configuration")
+        
+        # Export memory if requested
+        if request.include_memory:
+            memory_data = {}
+            for agent in agents:
+                agent_name = agent["name"]
+                memory_entries = memory_manager.get_agent_memory(agent_name, limit=1000)
+                memory_data[agent_name] = memory_entries
+            backup_data["memory"] = memory_data
+            logger.info(f"Exported memory for {len(agents)} agents")
+        
+        # Save backup data
+        backup_file = backup_path / "backup.json"
+        with open(backup_file, 'w') as f:
+            json.dump(backup_data, f, indent=2, default=str)
+        
+        # Create zip file if requested
+        zip_path = None
+        if request.create_zip:
+            zip_path = backup_dir / f"{backup_name}.zip"
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for file_path in backup_path.rglob('*'):
+                    if file_path.is_file():
+                        arcname = file_path.relative_to(backup_path)
+                        zipf.write(file_path, arcname)
+            
+            # Remove the directory if zip was created
+            import shutil
+            shutil.rmtree(backup_path)
+            logger.info(f"Created zip backup: {zip_path}")
+        
+        return {
+            "status": "success",
+            "message": f"Backup '{backup_name}' created successfully",
+            "backup_name": backup_name,
+            "backup_path": str(zip_path if zip_path else backup_path),
+            "backup_type": "zip" if zip_path else "directory",
+            "exported_items": {
+                "agents": len(backup_data["agents"]),
+                "workflows": len(backup_data["workflows"]),
+                "tools": len(backup_data["tools"]),
+                "scheduled_tasks": len(backup_data["scheduled_tasks"]),
+                "include_memory": request.include_memory,
+                "include_config": request.include_config
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error during backup export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/backup/import")
+async def import_backup(
+    file: UploadFile = File(...),
+    options: str = Form(...)
+):
+    """Import agents, workflows, tools, and configuration from backup files"""
+    try:
+        # Parse import options
+        import_options = json.loads(options)
+        
+        # Create temporary directory for uploaded file
+        temp_dir = Path("temp_imports")
+        temp_dir.mkdir(exist_ok=True)
+        
+        # Save uploaded file
+        file_path = temp_dir / file.filename
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        try:
+            # Extract backup data
+            backup_data = None
+            
+            # Check if it's a zip file
+            if file.filename.endswith('.zip'):
+                with zipfile.ZipFile(file_path, 'r') as zipf:
+                    if 'backup.json' in zipf.namelist():
+                        with zipf.open('backup.json') as f:
+                            backup_data = json.load(f)
+                    else:
+                        raise HTTPException(status_code=400, detail="Invalid backup file: backup.json not found")
+            else:
+                # Assume it's a JSON file
+                with open(file_path, 'r') as f:
+                    backup_data = json.load(f)
+            
+            if not backup_data:
+                raise HTTPException(status_code=400, detail="Invalid backup file: could not read backup data")
+            
+            # Validate backup structure
+            required_keys = ["metadata", "agents", "workflows"]
+            missing_keys = [key for key in required_keys if key not in backup_data]
+            if missing_keys:
+                raise HTTPException(status_code=400, detail=f"Invalid backup file: missing keys: {missing_keys}")
+            
+            # Perform dry run if requested
+            if import_options.get("dry_run", False):
+                return {
+                    "status": "success",
+                    "message": "Dry run completed successfully",
+                    "dry_run": True,
+                    "import_summary": {
+                        "agents": len(backup_data.get("agents", [])),
+                        "workflows": len(backup_data.get("workflows", [])),
+                        "tools": len(backup_data.get("tools", [])),
+                        "scheduled_tasks": len(backup_data.get("scheduled_tasks", [])),
+                        "include_memory": bool(backup_data.get("memory")),
+                        "include_config": bool(backup_data.get("config"))
+                    }
+                }
+            
+            # Import agents
+            imported_agents = 0
+            if import_options.get("import_agents", True):
+                for agent in backup_data.get("agents", []):
+                    try:
+                        # Check if agent already exists
+                        existing_agent = memory_manager.get_agent(agent["name"])
+                        if existing_agent and not import_options.get("overwrite_existing", False):
+                            logger.warning(f"Agent '{agent['name']}' already exists, skipping")
+                            continue
+                        
+                        # Import agent
+                        memory_manager.register_agent(
+                            name=agent["name"],
+                            role=agent.get("role", ""),
+                            goals=agent.get("goals", ""),
+                            backstory=agent.get("backstory", ""),
+                            tools=agent.get("tools", []),
+                            ollama_model=agent.get("ollama_model", "llama3"),
+                            enabled=agent.get("enabled", True),
+                            tool_configs=agent.get("tool_configs", {})
+                        )
+                        imported_agents += 1
+                        logger.info(f"Imported agent: {agent['name']}")
+                    except Exception as e:
+                        logger.error(f"Failed to import agent {agent['name']}: {e}")
+            
+            # Import workflows
+            imported_workflows = 0
+            if import_options.get("import_workflows", True):
+                for workflow in backup_data.get("workflows", []):
+                    try:
+                        # Check if workflow already exists
+                        existing_workflow = memory_manager.get_workflow(workflow["name"])
+                        if existing_workflow and not import_options.get("overwrite_existing", False):
+                            logger.warning(f"Workflow '{workflow['name']}' already exists, skipping")
+                            continue
+                        
+                        # Import workflow
+                        memory_manager.register_workflow(
+                            name=workflow["name"],
+                            description=workflow.get("description", ""),
+                            steps=workflow.get("steps", []),
+                            enabled=workflow.get("enabled", True),
+                            input_schema=workflow.get("input_schema", {}),
+                            output_spec=workflow.get("output_spec", {})
+                        )
+                        imported_workflows += 1
+                        logger.info(f"Imported workflow: {workflow['name']}")
+                    except Exception as e:
+                        logger.error(f"Failed to import workflow {workflow['name']}: {e}")
+            
+            # Import tools
+            imported_tools = 0
+            if import_options.get("import_tools", True):
+                for tool in backup_data.get("tools", []):
+                    try:
+                        # Check if tool already exists
+                        existing_tool = memory_manager.get_tool(tool["name"])
+                        if existing_tool and not import_options.get("overwrite_existing", False):
+                            logger.warning(f"Tool '{tool['name']}' already exists, skipping")
+                            continue
+                        
+                        # Import tool
+                        memory_manager.register_tool(
+                            name=tool["name"],
+                            description=tool.get("description", ""),
+                            parameters_schema=tool.get("parameters_schema", {}),
+                            class_name=tool.get("class_name", ""),
+                            enabled=tool.get("enabled", True)
+                        )
+                        imported_tools += 1
+                        logger.info(f"Imported tool: {tool['name']}")
+                    except Exception as e:
+                        logger.error(f"Failed to import tool {tool['name']}: {e}")
+            
+            # Import scheduled tasks
+            imported_tasks = 0
+            if import_options.get("import_scheduled_tasks", True):
+                for task in backup_data.get("scheduled_tasks", []):
+                    try:
+                        # Import scheduled task
+                        memory_manager.schedule_task(
+                            task_type=task["task_type"],
+                            scheduled_time=task["scheduled_time"],
+                            agent_name=task.get("agent_name"),
+                            workflow_name=task.get("workflow_name"),
+                            task_description=task.get("task_description", ""),
+                            context=task.get("context", {}),
+                            is_recurring=task.get("is_recurring", False),
+                            recurrence_pattern=task.get("recurrence_pattern"),
+                            recurrence_type=task.get("recurrence_type", "simple"),
+                            max_executions=task.get("max_executions"),
+                            max_failures=task.get("max_failures", 3)
+                        )
+                        imported_tasks += 1
+                        logger.info(f"Imported scheduled task: {task.get('agent_name', task.get('workflow_name', 'Unknown'))}")
+                    except Exception as e:
+                        logger.error(f"Failed to import scheduled task {task.get('agent_name', task.get('workflow_name', 'Unknown'))}: {e}")
+            
+            # Import memory if requested
+            imported_memory = 0
+            if import_options.get("import_memory", False) and "memory" in backup_data:
+                for agent_name, memory_entries in backup_data["memory"].items():
+                    try:
+                        for entry in memory_entries:
+                            memory_manager.add_memory_entry(
+                                agent_name=agent_name,
+                                role=entry["role"],
+                                content=entry["content"],
+                                metadata=entry.get("entry_metadata", {})
+                            )
+                        imported_memory += len(memory_entries)
+                        logger.info(f"Imported {len(memory_entries)} memory entries for agent: {agent_name}")
+                    except Exception as e:
+                        logger.error(f"Failed to import memory for agent {agent_name}: {e}")
+            
+            return {
+                "status": "success",
+                "message": "Backup imported successfully",
+                "import_summary": {
+                    "agents": imported_agents,
+                    "workflows": imported_workflows,
+                    "tools": imported_tools,
+                    "scheduled_tasks": imported_tasks,
+                    "memory_entries": imported_memory
+                }
+            }
+            
+        finally:
+            # Clean up temporary file
+            if file_path.exists():
+                file_path.unlink()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during backup import: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/backup/list")
+async def list_backups(backup_dir: str = "backups"):
+    """List available backups"""
+    try:
+        backup_path = Path(backup_dir)
+        if not backup_path.exists():
+            logger.warning(f"Backup directory {backup_dir} does not exist")
+            return {"backups": [], "message": f"Backup directory {backup_dir} does not exist"}
+        
+        backups = []
+        logger.info(f"Scanning backup directory: {backup_path}")
+        
+        # Look for backup directories and zip files
+        for item in backup_path.iterdir():
+            logger.debug(f"Checking item: {item}")
+            if item.is_dir():
+                # Check if it's a backup directory (contains backup.json)
+                backup_file = item / "backup.json"
+                if backup_file.exists():
+                    try:
+                        with open(backup_file, 'r') as f:
+                            backup_data = json.load(f)
+                        metadata = backup_data.get("metadata", {})
+                        backups.append({
+                            "name": item.name,
+                            "type": "directory",
+                            "path": str(item),
+                            "metadata": metadata
+                        })
+                        logger.info(f"Found backup directory: {item.name}")
+                    except Exception as e:
+                        logger.warning(f"Invalid backup file in directory {item.name}: {e}")
+                        continue
+            elif item.suffix == '.zip':
+                # Check if it's a backup zip file
+                try:
+                    with zipfile.ZipFile(item, 'r') as zipf:
+                        if 'backup.json' in zipf.namelist():
+                            with zipf.open('backup.json') as f:
+                                backup_data = json.load(f)
+                            metadata = backup_data.get("metadata", {})
+                            backups.append({
+                                "name": item.stem,
+                                "type": "zip",
+                                "path": str(item),
+                                "metadata": metadata
+                            })
+                            logger.info(f"Found backup zip: {item.name}")
+                        else:
+                            logger.debug(f"Zip file {item.name} does not contain backup.json")
+                except Exception as e:
+                    logger.warning(f"Invalid zip file {item.name}: {e}")
+                    continue
+        
+        # Sort by timestamp (newest first)
+        backups.sort(key=lambda x: x["metadata"].get("timestamp", ""), reverse=True)
+        
+        logger.info(f"Found {len(backups)} backups")
+        return {
+            "backups": backups,
+            "total": len(backups),
+            "backup_directory": str(backup_path)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing backups: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/backup/download/{backup_name}")
+async def download_backup(backup_name: str):
+    """Download a backup as a zip file"""
+    try:
+        backup_dir = Path("backups")
+        zip_path = backup_dir / f"{backup_name}.zip"
+        
+        if not zip_path.exists():
+            raise HTTPException(status_code=404, detail="Backup not found")
+        
+        return FileResponse(
+            path=str(zip_path),
+            filename=f"{backup_name}.zip",
+            media_type="application/zip"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/backup/delete/{backup_name}")
+async def delete_backup(backup_name: str):
+    """Delete a backup"""
+    try:
+        backup_dir = Path("backups")
+        backup_path = backup_dir / backup_name
+        
+        # Check if it's a directory
+        if backup_path.is_dir():
+            import shutil
+            shutil.rmtree(backup_path)
+        # Check if it's a zip file
+        elif (backup_path.with_suffix('.zip')).exists():
+            (backup_path.with_suffix('.zip')).unlink()
+        else:
+            raise HTTPException(status_code=404, detail="Backup not found")
+        
+        return {"message": f"Backup '{backup_name}' deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
