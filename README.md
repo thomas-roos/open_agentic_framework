@@ -19,6 +19,7 @@ A sample framework implementation for creating and orchestrating AI agents, feat
 - **Website Monitoring** - Real-world example with email alerting capabilities
 - **Production Ready** - Docker deployment with comprehensive monitoring
 - **Interactive API Documentation** - Complete Swagger UI with live testing
+- **🌐 Web UI** - Modern web interface for easy management and monitoring
 
 ## Quick Start
 
@@ -44,6 +45,7 @@ docker-compose logs -f model-downloader
 
 ### 2. Access the Framework & Documentation
 
+- **Web UI**: http://localhost:8000/ui
 - **Interactive API Documentation**: http://localhost:8000/docs
 - **Alternative Docs (ReDoc)**: http://localhost:8000/redoc
 - **Health Check**: http://localhost:8000/health
@@ -684,6 +686,17 @@ curl -X POST "http://localhost:8000/schedule" \
 ```
 
 </details>
+
+## Web UI
+
+The Open Agentic Framework includes a modern web interface that provides an intuitive way to manage your AI agents, workflows, and system configuration.
+
+### Accessing the Web UI
+
+Once the framework is running, access the web interface at:
+
+**http://localhost:8000/ui**
+
 
 ## Contributing
 
