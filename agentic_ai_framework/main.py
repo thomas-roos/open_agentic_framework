@@ -4,6 +4,8 @@ main.py - FastAPI Application Entry Point (Enhanced with Multi-Provider LLM Supp
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 import uvicorn
 import asyncio
 import logging
@@ -20,6 +22,7 @@ from managers.workflow_manager import WorkflowManager
 from managers.model_warmup_manager import ModelWarmupManager, ModelWarmupStatus
 from pydantic import BaseModel
 from models import ScheduledTaskDefinition, ScheduledTaskUpdate, TaskExecutionInfo, RecurrenceType
+import os
 
 
 # Configure logging
@@ -41,6 +44,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files for web UI
+web_ui_path = os.path.join(os.path.dirname(__file__), "web-ui")
+if os.path.exists(web_ui_path):
+    app.mount("/ui", StaticFiles(directory=web_ui_path, html=True), name="web-ui")
+    logger.info(f"Web UI mounted at /ui from {web_ui_path}")
+else:
+    logger.warning(f"Web UI directory not found at {web_ui_path}")
 
 # Global configuration
 config = Config()
@@ -248,16 +259,22 @@ async def shutdown_event():
 # Root endpoints
 @app.get("/")
 async def root():
-    """Root endpoint with basic information"""
+    """Root endpoint - redirects to web UI if available, otherwise shows API info"""
     return {
         "message": "Open Agentic Framework",
         "version": "1.2.0",
-        "docs": "/docs",
+        "web_ui": "/ui",
+        "api_docs": "/docs",
         "health": "/health",
         "providers": "/providers",
         "models": "/models",
         "memory_stats": "/memory/stats"
     }
+
+@app.get("/ui")
+async def web_ui():
+    """Redirect to web UI index page"""
+    return RedirectResponse(url="/ui/index.html")
 
 @app.get("/health")
 async def health_check():

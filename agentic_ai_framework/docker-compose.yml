@@ -4,7 +4,7 @@ services:
     build: .
     container_name: agentic-ai-framework
     ports:
-      - "8000:8000"
+      - "8000:8000"  # API and Web UI available at http://localhost:8000
     environment:
       - OLLAMA_URL=http://ollama:11434
       - DEFAULT_MODEL=granite3.2:2b
