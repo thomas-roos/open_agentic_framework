@@ -125,7 +125,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 If you experience or witness unacceptable behavior, or have any other concerns, please report it by contacting the project team at:
 
-- **Email**: conduct@yourproject.com
+- **Email**: conduct@openagenticframework.com
 - **GitHub**: Create a private issue using the "Report Code of Conduct Violation" template
 - **Direct Contact**: Reach out to any project maintainer directly
 
@@ -234,9 +234,8 @@ We are committed to:
 ### Questions About the Code of Conduct
 
 If you have questions about this Code of Conduct or need clarification on any aspect:
-- **Create a discussion** in GitHub Discussions
 - **Contact maintainers** directly
-- **Email us** at conduct@yourproject.com
+- **Email us** at conduct@openagenticframework.com
 
 ### Resources for Creating Inclusive Spaces
 
@@ -248,9 +247,7 @@ If you have questions about this Code of Conduct or need clarification on any as
 ### Emergency Contacts
 
 In cases of immediate safety concerns or urgent violations:
-- **Project Lead**: [email]
-- **Community Manager**: [email]
-- **Security Team**: security@yourproject.com
+- **Security Contact**: security@openagenticframework.com
 
 ## Thank You
 
