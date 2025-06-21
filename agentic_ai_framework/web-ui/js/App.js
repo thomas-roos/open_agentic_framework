@@ -60,6 +60,15 @@ const App = () => {
                 React.createElement('p', { key: 'desc' }, 'Tools management will be available in a future update.')
             ])),
             icon: 'fas fa-tools'
+        },
+        backup: { 
+            title: 'Backup & Restore', 
+            component: BackupManagement || (() => React.createElement('div', { className: 'empty-state' }, [
+                React.createElement('i', { key: 'icon', className: 'fas fa-archive' }),
+                React.createElement('h3', { key: 'title' }, 'Backup Management - Coming Soon'),
+                React.createElement('p', { key: 'desc' }, 'Backup and restore functionality will be available in a future update.')
+            ])),
+            icon: 'fas fa-archive'
         }
     };
 
