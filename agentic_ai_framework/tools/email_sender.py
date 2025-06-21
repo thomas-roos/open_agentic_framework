@@ -6,6 +6,7 @@ Supports HTML and plain text emails with attachments support.
 """
 
 import smtplib
+import ssl
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -24,7 +25,7 @@ class EmailSenderTool(BaseTool):
     
     @property
     def description(self) -> str:
-        return "Send emails using SMTP. Requires SMTP configuration in agent tool_configs (smtp_host, smtp_username, smtp_password)."
+        return "Send emails using SMTP with SSL/TLS support. Requires SMTP configuration in agent tool_configs (smtp_host, smtp_username, smtp_password)."
     
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -86,6 +87,8 @@ class EmailSenderTool(BaseTool):
         smtp_username = self.get_config("smtp_username")
         smtp_password = self.get_config("smtp_password")
         smtp_use_tls = self.get_config("smtp_use_tls", True)
+        smtp_use_ssl = self.get_config("smtp_use_ssl", False)
+        smtp_verify_ssl = self.get_config("smtp_verify_ssl", True)
         from_email = self.get_config("from_email", smtp_username)
         
         # Validate required configuration
@@ -141,16 +144,34 @@ class EmailSenderTool(BaseTool):
             # Connect to SMTP server and send
             logger.info(f"Connecting to SMTP server {smtp_host}:{smtp_port}")
             
-            with smtplib.SMTP(smtp_host, smtp_port) as server:
+            # Create SSL context if needed
+            ssl_context = None
+            if smtp_use_ssl or smtp_use_tls:
+                ssl_context = ssl.create_default_context()
+                if not smtp_verify_ssl:
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+            
+            # Connect using appropriate method
+            if smtp_use_ssl:
+                # SSL connection from the start
+                server = smtplib.SMTP_SSL(smtp_host, smtp_port, context=ssl_context)
+                logger.debug("Established SSL connection")
+            else:
+                # Regular connection with optional STARTTLS
+                server = smtplib.SMTP(smtp_host, smtp_port)
                 if smtp_use_tls:
-                    server.starttls()
+                    server.starttls(context=ssl_context)
                     logger.debug("Started TLS connection")
-                
-                server.login(smtp_username, smtp_password)
-                logger.debug("SMTP login successful")
-                
-                server.send_message(msg, to_addrs=recipients)
-                logger.info(f"Email sent successfully to {len(recipients)} recipients")
+            
+            # Login and send
+            server.login(smtp_username, smtp_password)
+            logger.debug("SMTP login successful")
+            
+            server.send_message(msg, to_addrs=recipients)
+            logger.info(f"Email sent successfully to {len(recipients)} recipients")
+            
+            server.quit()
             
             return {
                 "status": "sent",
@@ -161,6 +182,7 @@ class EmailSenderTool(BaseTool):
                 "priority": priority,
                 "html": is_html,
                 "recipients_count": len(recipients),
+                "connection_type": "SSL" if smtp_use_ssl else "STARTTLS" if smtp_use_tls else "plain",
                 "message": f"Email sent successfully to {to_email}"
             }
             

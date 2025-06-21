@@ -26,6 +26,9 @@ passlib[bcrypt]==1.7.4
 
 # Email functionality
 aiosmtplib==3.0.1
+# Email protocol support for POP3 and IMAP
+imaplib2==3.6
+poplib2==0.2
 
 # Background task scheduling
 apscheduler==3.10.4
