@@ -8,12 +8,9 @@ Supports HTML and plain text emails with attachments support.
 import smtplib
 import ssl
 import logging
-import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from .base_tool import BaseTool
 
@@ -66,35 +63,6 @@ class EmailSenderTool(BaseTool):
                     "type": "string",
                     "description": "Email priority: low, normal, high",
                     "default": "normal"
-                },
-                "attachments": {
-                    "type": "array",
-                    "description": "List of attachments to include in the email",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "filename": {
-                                "type": "string",
-                                "description": "Name of the attachment file"
-                            },
-                            "content": {
-                                "type": "string",
-                                "description": "Content of the attachment (text or base64 encoded)"
-                            },
-                            "content_type": {
-                                "type": "string",
-                                "description": "MIME type of the attachment (e.g., text/plain, application/json)",
-                                "default": "text/plain"
-                            },
-                            "encoding": {
-                                "type": "string",
-                                "description": "Encoding of the content (e.g., utf-8, base64)",
-                                "default": "utf-8"
-                            }
-                        },
-                        "required": ["filename", "content"]
-                    },
-                    "default": []
                 }
             },
             "required": ["to", "subject", "body"]
@@ -105,7 +73,7 @@ class EmailSenderTool(BaseTool):
         Send email using SMTP configuration
         
         Args:
-            parameters: Email parameters (to, subject, body, attachments, etc.)
+            parameters: Email parameters (to, subject, body, etc.)
             
         Returns:
             Dictionary with send status and details
@@ -140,7 +108,6 @@ class EmailSenderTool(BaseTool):
         bcc_emails = parameters.get("bcc", "")
         is_html = parameters.get("html", False)
         priority = parameters.get("priority", "normal")
-        attachments = parameters.get("attachments", [])
         
         try:
             # Create message
@@ -166,46 +133,6 @@ class EmailSenderTool(BaseTool):
                 msg.attach(MIMEText(body, "html"))
             else:
                 msg.attach(MIMEText(body, "plain"))
-            
-            # Add attachments if provided
-            attachment_count = 0
-            for attachment in attachments:
-                try:
-                    filename = attachment["filename"]
-                    content = attachment["content"]
-                    content_type = attachment.get("content_type", "text/plain")
-                    encoding = attachment.get("encoding", "utf-8")
-                    
-                    # Create attachment part
-                    part = MIMEBase('application', 'octet-stream')
-                    
-                    # Handle different encodings
-                    if encoding.lower() == "base64":
-                        part.set_payload(base64.b64decode(content))
-                    else:
-                        # Default to UTF-8 text
-                        part.set_payload(content.encode(encoding))
-                    
-                    # Encode the attachment
-                    encoders.encode_base64(part)
-                    
-                    # Set headers
-                    part.add_header(
-                        'Content-Disposition',
-                        f'attachment; filename= {filename}'
-                    )
-                    
-                    # Set content type if specified
-                    if content_type and content_type != "application/octet-stream":
-                        part.set_type(content_type)
-                    
-                    msg.attach(part)
-                    attachment_count += 1
-                    logger.debug(f"Added attachment: {filename}")
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to add attachment {attachment.get('filename', 'unknown')}: {e}")
-                    continue
             
             # Prepare recipient list
             recipients = [to_email]
@@ -242,7 +169,7 @@ class EmailSenderTool(BaseTool):
             logger.debug("SMTP login successful")
             
             server.send_message(msg, to_addrs=recipients)
-            logger.info(f"Email sent successfully to {len(recipients)} recipients with {attachment_count} attachments")
+            logger.info(f"Email sent successfully to {len(recipients)} recipients")
             
             server.quit()
             
@@ -255,9 +182,8 @@ class EmailSenderTool(BaseTool):
                 "priority": priority,
                 "html": is_html,
                 "recipients_count": len(recipients),
-                "attachment_count": attachment_count,
                 "connection_type": "SSL" if smtp_use_ssl else "STARTTLS" if smtp_use_tls else "plain",
-                "message": f"Email sent successfully to {to_email} with {attachment_count} attachments"
+                "message": f"Email sent successfully to {to_email}"
             }
             
         except smtplib.SMTPAuthenticationError as e:

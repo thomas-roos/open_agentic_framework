@@ -21,7 +21,8 @@ class WorkflowManager:
     async def execute_workflow(
         self, 
         workflow_name: str, 
-        context: Dict[str, Any] = {}
+        context: Dict[str, Any] = {},
+        agent_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute workflow with input schema support"""
     
@@ -33,6 +34,8 @@ class WorkflowManager:
             raise ValueError(f"Workflow {workflow_name} is disabled")
 
         logger.info(f"Starting workflow {workflow_name} with initial context: {context}")
+        if agent_name:
+            logger.info(f"Workflow execution associated with agent: {agent_name}")
     
         # NEW: Validate input against schema if present
         input_schema = workflow.get("input_schema")
@@ -67,7 +70,7 @@ class WorkflowManager:
                     result = self._parse_agent_result(result)
                 
                 elif resolved_step["type"] == "tool":
-                    result = await self._execute_tool_step(resolved_step, step_input_context)
+                    result = await self._execute_tool_step(resolved_step, step_input_context, agent_name)
                     logger.info(f"Tool result type: {type(result)}")
                     logger.info(f"Tool result: {result}")
                 else:
@@ -241,10 +244,11 @@ class WorkflowManager:
     async def _execute_tool_step(
         self, 
         step: Dict[str, Any], 
-        context: Dict[str, Any]
+        context: Dict[str, Any],
+        agent_name: Optional[str] = None
     ) -> Any:
         """Execute a tool step with enhanced debugging"""
-        tool_name = step["name"]
+        tool_name = step.get("tool") or step["name"]  # Use 'tool' field if available, fallback to 'name'
         parameters = step.get("parameters", {})
         
         logger.info(f"Tool step parameters before execution: {parameters}")
@@ -258,15 +262,16 @@ class WorkflowManager:
         
         logger.info(f"Executing tool {tool_name} with parameters: {parameters}")
         
-        return await self.tool_manager.execute_tool(tool_name, parameters)
+        return await self.tool_manager.execute_tool(tool_name, parameters, agent_name)
     
-    def _substitute_variables(self, text: str, context: Dict[str, Any]) -> str:
-        """Enhanced variable substitution with debugging"""
+    def _substitute_variables(self, text: str, context: Dict[str, Any], preserve_objects: bool = False) -> Any:
+        """Enhanced variable substitution with debugging and optional object preservation"""
         if not isinstance(text, str):
             return text
         
         logger.debug(f"Substituting variables in: '{text}'")
         logger.debug(f"Available context: {context}")
+        logger.debug(f"Preserve objects: {preserve_objects}")
         
         # Pattern to match {{variable}} or {{object.property}}
         pattern = r'\{\{([^}]+)\}\}'
@@ -293,15 +298,17 @@ class WorkflowManager:
                                 logger.error(f"Available keys: {list(value.keys())}")
                             return match.group(0)  # Return original if not found
                     
+                    # Always return string for re.sub compatibility
                     result = str(value) if not isinstance(value, str) else value
-                    logger.debug(f"Variable {var_path} resolved to: {repr(result)}")
+                    logger.debug(f"Variable {var_path} resolved to string: {repr(result)}")
                     return result
                 
                 # Simple variable access
                 elif var_path in context:
                     value = context[var_path]
+                    # Always return string for re.sub compatibility
                     result = str(value) if not isinstance(value, str) else value
-                    logger.debug(f"Variable {var_path} resolved to: {repr(result)}")
+                    logger.debug(f"Variable {var_path} resolved to string: {repr(result)}")
                     return result
                 else:
                     logger.error(f"Variable {var_path} not found in context")
@@ -312,6 +319,34 @@ class WorkflowManager:
                 logger.error(f"Error resolving variable {var_path}: {e}")
                 return match.group(0)  # Keep original on error
         
+        # Check if the entire text is a single variable reference
+        if re.match(pattern, text.strip()):
+            # Single variable reference - return the object directly if preserve_objects is True
+            match = re.match(pattern, text.strip())
+            if match:
+                var_path = match.group(1).strip()
+                if '.' in var_path:
+                    parts = var_path.split('.')
+                    value = context
+                    for part in parts:
+                        if isinstance(value, dict) and part in value:
+                            value = value[part]
+                        else:
+                            return text  # Return original if not found
+                elif var_path in context:
+                    value = context[var_path]
+                else:
+                    return text  # Return original if not found
+                
+                if preserve_objects:
+                    logger.debug(f"Single variable {var_path} resolved to object: {repr(value)}")
+                    return value
+                else:
+                    result = str(value) if not isinstance(value, str) else value
+                    logger.debug(f"Single variable {var_path} resolved to string: {repr(result)}")
+                    return result
+        
+        # Multiple variables or mixed content - use regex substitution (always returns string)
         result = re.sub(pattern, replace_var, text)
         logger.debug(f"Final substitution result: '{result}'")
         return result
@@ -325,13 +360,17 @@ class WorkflowManager:
         logger.debug(f"Resolving variables in step: {step}")
         resolved_step = {}
         
+        # Check if this step should preserve objects
+        preserve_objects = step.get("preserve_objects", False)
+        logger.debug(f"Step preserve_objects flag: {preserve_objects}")
+        
         for key, value in step.items():
             if isinstance(value, str):
-                resolved_step[key] = self._substitute_variables(value, context)
+                resolved_step[key] = self._substitute_variables(value, context, preserve_objects)
             elif isinstance(value, dict):
-                resolved_step[key] = self._resolve_dict_variables(value, context)
+                resolved_step[key] = self._resolve_dict_variables(value, context, preserve_objects)
             elif isinstance(value, list):
-                resolved_step[key] = self._resolve_list_variables(value, context)
+                resolved_step[key] = self._resolve_list_variables(value, context, preserve_objects)
             else:
                 resolved_step[key] = value
         
@@ -341,18 +380,19 @@ class WorkflowManager:
     def _resolve_dict_variables(
         self, 
         data: Dict[str, Any], 
-        context: Dict[str, Any]
+        context: Dict[str, Any],
+        preserve_objects: bool = False
     ) -> Dict[str, Any]:
         """Recursively resolve variables in dictionary"""
         resolved = {}
         
         for key, value in data.items():
             if isinstance(value, str):
-                resolved[key] = self._substitute_variables(value, context)
+                resolved[key] = self._substitute_variables(value, context, preserve_objects)
             elif isinstance(value, dict):
-                resolved[key] = self._resolve_dict_variables(value, context)
+                resolved[key] = self._resolve_dict_variables(value, context, preserve_objects)
             elif isinstance(value, list):
-                resolved[key] = self._resolve_list_variables(value, context)
+                resolved[key] = self._resolve_list_variables(value, context, preserve_objects)
             else:
                 resolved[key] = value
         
@@ -361,18 +401,19 @@ class WorkflowManager:
     def _resolve_list_variables(
         self, 
         data: List[Any], 
-        context: Dict[str, Any]
+        context: Dict[str, Any],
+        preserve_objects: bool = False
     ) -> List[Any]:
         """Recursively resolve variables in list"""
         resolved = []
         
         for item in data:
             if isinstance(item, str):
-                resolved.append(self._substitute_variables(item, context))
+                resolved.append(self._substitute_variables(item, context, preserve_objects))
             elif isinstance(item, dict):
-                resolved.append(self._resolve_dict_variables(item, context))
+                resolved.append(self._resolve_dict_variables(item, context, preserve_objects))
             elif isinstance(item, list):
-                resolved.append(self._resolve_list_variables(item, context))
+                resolved.append(self._resolve_list_variables(item, context, preserve_objects))
             else:
                 resolved.append(item)
         
@@ -429,7 +470,7 @@ class WorkflowManager:
         
         # Validate tool steps
         elif step_type == "tool":
-            tool_name = step["name"]
+            tool_name = step.get("tool") or step["name"]  # Use 'tool' field if available, fallback to 'name'
             tool = self.memory_manager.get_tool(tool_name)
             if not tool:
                 errors.append(f"Step {step_number}: Tool '{tool_name}' not found")

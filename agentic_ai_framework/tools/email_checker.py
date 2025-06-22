@@ -116,11 +116,12 @@ class EmailCheckerTool(BaseTool):
                 raise Exception("email_id is required for 'read_email' action")
             
             include_attachments = parameters.get("include_attachments", True)
+            folder = parameters.get("folder", "INBOX")
             
             if protocol == "pop3":
                 return await self._read_pop3_email(server_config, email_id, include_attachments)
             else:
-                return await self._read_imap_email(server_config, email_id, include_attachments)
+                return await self._read_imap_email(server_config, email_id, include_attachments, folder)
         
         else:
             raise Exception(f"Unknown action: {action}")
@@ -404,86 +405,64 @@ class EmailCheckerTool(BaseTool):
         """Read a specific POP3 email"""
         try:
             import poplib
-            
-            # Create SSL context
             ssl_context = ssl.create_default_context()
             if not config["use_ssl"]:
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
-            
-            # Connect to POP3 server
             if config["use_ssl"]:
                 server = poplib.POP3_SSL(config["host"], config["port"], context=ssl_context)
             else:
                 server = poplib.POP3(config["host"], config["port"])
-            
-            # Login
             server.user(config["username"])
             server.pass_(config["password"])
-            
-            # Retrieve email
             resp, lines, octets = server.retr(int(email_id))
             email_content = b'\n'.join(lines)
             email_message = message_from_bytes(email_content)
-            
-            # Parse email
             email_data = self._parse_email_message(email_message, include_attachments)
             email_data["id"] = email_id
             email_data["size"] = octets
-            
+            email_data["raw_content"] = email_content  # Add raw content
             server.quit()
-            
             return {
                 "protocol": "pop3",
                 "email": email_data,
                 "message": f"Successfully read POP3 email {email_id}"
             }
-            
         except Exception as e:
             error_msg = f"Failed to read POP3 email {email_id}: {e}"
             logger.error(error_msg)
             raise Exception(error_msg)
     
-    async def _read_imap_email(self, config: Dict[str, Any], email_id: str, include_attachments: bool) -> Dict[str, Any]:
+    async def _read_imap_email(self, config: Dict[str, Any], email_id: str, include_attachments: bool, folder: str) -> Dict[str, Any]:
         """Read a specific IMAP email"""
         try:
             import imaplib
-            
-            # Create SSL context
             ssl_context = ssl.create_default_context()
             if not config["use_ssl"]:
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
-            
-            # Connect to IMAP server
             if config["use_ssl"]:
                 server = imaplib.IMAP4_SSL(config["host"], config["port"], ssl_context=ssl_context)
             else:
                 server = imaplib.IMAP4(config["host"], config["port"])
-            
-            # Login
             server.login(config["username"], config["password"])
-            
-            # Fetch email
+            status, messages = server.select(folder)
+            if status != "OK":
+                raise Exception(f"Failed to select folder {folder}: {messages}")
             status, msg_data = server.fetch(email_id, "(RFC822)")
             if status != "OK":
                 raise Exception(f"Failed to fetch email: {msg_data}")
-            
-            # Parse email
             email_content = msg_data[0][1]
             email_message = message_from_bytes(email_content)
-            
             email_data = self._parse_email_message(email_message, include_attachments)
             email_data["id"] = email_id
-            
+            email_data["raw_content"] = email_content  # Add raw content
             server.logout()
-            
             return {
                 "protocol": "imap",
                 "email": email_data,
-                "message": f"Successfully read IMAP email {email_id}"
+                "message": f"Successfully read IMAP email {email_id} from {folder}"
             }
-            
         except Exception as e:
             error_msg = f"Failed to read IMAP email {email_id}: {e}"
             logger.error(error_msg)

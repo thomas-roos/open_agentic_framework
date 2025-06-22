@@ -209,6 +209,18 @@ class AgenticAPI {
         });
     }
 
+    // NEW: Tool configuration endpoints
+    getToolConfig(toolName) {
+        return this.request(`/tools/${encodeURIComponent(toolName)}/config`);
+    }
+
+    configureTool(toolName, config) {
+        return this.request(`/tools/${encodeURIComponent(toolName)}/configure`, {
+            method: 'POST',
+            body: JSON.stringify(config)
+        });
+    }
+
     // ENHANCED: Scheduling endpoints with recurring support
     getScheduledTasks() { 
         return this.request('/schedule'); 

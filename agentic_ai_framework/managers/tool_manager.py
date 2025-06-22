@@ -181,9 +181,12 @@ class ToolManager:
             logger.error(f"Error executing tool {tool_name}: {e}")
             raise
     
-    def _get_tool_config(self, tool_name: str, agent_name: Optional[str]) -> Dict[str, Any]:
+    def _get_tool_config(self, tool_name: str, agent_name: Optional[str] = None) -> Dict[str, Any]:
         """
-        Get tool configuration for a specific agent
+        Get tool configuration from multiple sources in order of precedence:
+        1. Agent-specific configuration (highest priority)
+        2. Tool-level configuration (stored in database)
+        3. Tool instance configuration (set via set_config)
         
         Args:
             tool_name: Name of the tool
@@ -194,11 +197,27 @@ class ToolManager:
         """
         config = {}
         
+        # 1. Get tool-level configuration from database
+        tool_config = self.memory_manager.get_tool_configuration(tool_name)
+        if tool_config:
+            config.update(tool_config)
+            logger.debug(f"Retrieved tool-level config for {tool_name}")
+        
+        # 2. Get agent-specific configuration (overrides tool-level)
         if agent_name:
             agent = self.memory_manager.get_agent(agent_name)
             if agent and agent.get("tool_configs"):
-                config = agent["tool_configs"].get(tool_name, {})
-                logger.debug(f"Retrieved config for tool {tool_name} from agent {agent_name}")
+                agent_tool_config = agent["tool_configs"].get(tool_name, {})
+                config.update(agent_tool_config)
+                logger.debug(f"Retrieved agent-specific config for tool {tool_name} from agent {agent_name}")
+        
+        # 3. Get tool instance configuration (if tool instance has been configured)
+        tool_instance = self.loaded_tools.get(tool_name)
+        if tool_instance and hasattr(tool_instance, 'get_config'):
+            instance_config = tool_instance.get_config()
+            if instance_config:
+                config.update(instance_config)
+                logger.debug(f"Retrieved instance config for tool {tool_name}")
         
         return config
     

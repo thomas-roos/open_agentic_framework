@@ -876,19 +876,54 @@ async def get_tool(tool_name: str):
 
 @app.post("/tools/{tool_name}/execute", response_model=ToolExecutionResponse)
 async def execute_tool(tool_name: str, request: ToolExecutionRequest):
-    """Execute a tool directly"""
+    """Execute a specific tool with parameters"""
     try:
-        result = await tool_manager.execute_tool(
-            tool_name, request.parameters, request.agent_name
-        )
+        result = await tool_manager.execute_tool(tool_name, request.parameters, request.agent_name)
         return ToolExecutionResponse(
             tool_name=tool_name,
-            parameters=request.parameters,
             result=result,
-            timestamp=datetime.utcnow()
+            execution_time=0.0  # TODO: Add timing
         )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Tool execution failed for {tool_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/tools/{tool_name}/config")
+async def get_tool_config(tool_name: str):
+    """Get configuration for a specific tool"""
+    try:
+        tool = tool_manager.get_tool_instance(tool_name)
+        if not tool:
+            raise HTTPException(status_code=404, detail=f"Tool {tool_name} not found")
+        
+        # Return the tool's configuration from database
+        config = memory_manager.get_tool_configuration(tool_name) or {}
+        return config
+    except Exception as e:
+        logger.error(f"Failed to get config for tool {tool_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/tools/{tool_name}/configure")
+async def configure_tool(tool_name: str, config: Dict[str, Any]):
+    """Configure a specific tool with new settings"""
+    try:
+        tool = tool_manager.get_tool_instance(tool_name)
+        if not tool:
+            raise HTTPException(status_code=404, detail=f"Tool {tool_name} not found")
+        
+        # Store configuration in database (tool-level configuration)
+        memory_manager.set_tool_configuration(tool_name, config)
+        
+        # Also set configuration on tool instance for immediate use
+        if hasattr(tool, 'set_config'):
+            tool.set_config(config)
+            logger.info(f"Updated configuration for tool {tool_name}")
+            return {"message": f"Configuration updated for tool {tool_name}"}
+        else:
+            raise HTTPException(status_code=400, detail=f"Tool {tool_name} does not support configuration")
+    except Exception as e:
+        logger.error(f"Failed to configure tool {tool_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Workflow endpoints (unchanged)
 @app.post("/workflows", response_model=WorkflowResponse)
@@ -901,9 +936,11 @@ async def create_workflow(workflow_def: WorkflowDefinition):
                 "type": step.type,
                 "name": step.name,
                 "task": step.task,
+                "tool": getattr(step, 'tool', None),
                 "parameters": step.parameters or {},
                 "context_key": step.context_key,
-                "use_previous_output": getattr(step, 'use_previous_output', False)
+                "use_previous_output": getattr(step, 'use_previous_output', False),
+                "preserve_objects": getattr(step, 'preserve_objects', False)
             }
             steps_dict.append(step_dict)
         
@@ -970,8 +1007,16 @@ async def execute_workflow(workflow_name: str, request: WorkflowExecutionRequest
             if validation_error:
                 raise HTTPException(status_code=400, detail=f"Input validation failed: {validation_error}")
         
+        # Get agent name from agent_id if provided
+        agent_name = None
+        if request.agent_id:
+            agent = memory_manager.get_agent_by_id(request.agent_id)
+            if agent:
+                agent_name = agent.get("name")
+                logger.info(f"Workflow execution with agent: {agent_name}")
+        
         result = await workflow_manager.execute_workflow(
-            workflow_name, input_context
+            workflow_name, input_context, agent_name
         )
         return WorkflowExecutionResponse(
             workflow_name=workflow_name,
