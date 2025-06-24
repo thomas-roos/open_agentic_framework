@@ -881,8 +881,9 @@ async def execute_tool(tool_name: str, request: ToolExecutionRequest):
         result = await tool_manager.execute_tool(tool_name, request.parameters, request.agent_name)
         return ToolExecutionResponse(
             tool_name=tool_name,
+            parameters=request.parameters,
             result=result,
-            execution_time=0.0  # TODO: Add timing
+            timestamp=datetime.utcnow()
         )
     except Exception as e:
         logger.error(f"Tool execution failed for {tool_name}: {e}")
