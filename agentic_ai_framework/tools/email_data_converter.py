@@ -62,17 +62,7 @@ class EmailDataConverterTool(BaseTool):
             
             # Handle different input formats
             if isinstance(email_data, str):
-                try:
-                    # Try to parse as JSON string
-                    parsed_data = json.loads(email_data)
-                except json.JSONDecodeError:
-                    # If not valid JSON, treat as template variable reference
-                    logger.warning(f"email_data is not valid JSON, treating as template reference: {email_data}")
-                    return {
-                        "status": "template_reference",
-                        "email_data": email_data,
-                        "message": "Email data appears to be a template reference"
-                    }
+                parsed_data = self._parse_string_data(email_data)
             else:
                 parsed_data = email_data
             
@@ -100,6 +90,41 @@ class EmailDataConverterTool(BaseTool):
                 "error": str(e),
                 "message": f"Email data conversion failed: {str(e)}"
             }
+    
+    def _parse_string_data(self, email_data: str) -> Any:
+        """Parse string data using multiple methods"""
+        
+        # Method 1: Try JSON parsing first
+        try:
+            return json.loads(email_data)
+        except json.JSONDecodeError:
+            pass
+        
+        # Method 2: Try Python literal evaluation (handles Python-style strings)
+        try:
+            import ast
+            return ast.literal_eval(email_data)
+        except (ValueError, SyntaxError):
+            pass
+        
+        # Method 3: Try to fix common Python->JSON issues and parse again
+        try:
+            # Replace Python None with JSON null
+            fixed_data = email_data.replace("None", "null")
+            # Replace Python True/False with JSON true/false
+            fixed_data = fixed_data.replace("True", "true").replace("False", "false")
+            # Try JSON parsing again
+            return json.loads(fixed_data)
+        except json.JSONDecodeError:
+            pass
+        
+        # Method 4: If all else fails, treat as template reference
+        logger.warning(f"email_data could not be parsed as JSON or Python literal, treating as template reference: {email_data[:100]}...")
+        return {
+            "status": "template_reference",
+            "email_data": email_data,
+            "message": "Email data appears to be a template reference"
+        }
     
     def _convert_to_object(self, data: Any, output_format: str) -> Any:
         """Convert email data to proper object format"""

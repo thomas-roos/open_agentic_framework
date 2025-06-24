@@ -1126,6 +1126,32 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                         ])
                                     ]),
 
+                                    // Preserve Objects configuration for tool steps
+                                    step.type === 'tool' && React.createElement('div', {
+                                        key: 'preserve-objects',
+                                        className: 'form-group'
+                                    }, [
+                                        React.createElement('label', {
+                                            key: 'label',
+                                            className: 'form-label'
+                                        }, 'Preserve Objects'),
+                                        React.createElement('div', {
+                                            key: 'checkbox-container',
+                                            style: { display: 'flex', alignItems: 'center', gap: '8px' }
+                                        }, [
+                                            React.createElement('input', {
+                                                key: 'checkbox',
+                                                type: 'checkbox',
+                                                checked: step.preserve_objects || false,
+                                                onChange: e => updateStep(index, { preserve_objects: e.target.checked })
+                                            }),
+                                            React.createElement('span', { 
+                                                key: 'text',
+                                                style: { fontSize: '12px', color: '#6b7280' }
+                                            }, 'Keep complex objects as objects instead of converting to strings')
+                                        ])
+                                    ]),
+
                                     // Task description for agent steps
                                     step.type === 'agent' && React.createElement('div', {
                                         key: 'task-field',
