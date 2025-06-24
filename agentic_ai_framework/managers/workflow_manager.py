@@ -273,7 +273,7 @@ class WorkflowManager:
         logger.debug(f"Available context: {context}")
         logger.debug(f"Preserve objects: {preserve_objects}")
         
-        # Pattern to match {{variable}} or {{object.property}}
+        # Pattern to match {{variable}} or {{object.property}} or {{array[0].property}}
         pattern = r'\{\{([^}]+)\}\}'
         
         def replace_var(match):
@@ -281,21 +281,82 @@ class WorkflowManager:
             logger.debug(f"Processing variable: {var_path}")
             
             try:
-                # Handle nested property access (e.g., parsed_purl.url)
-                if '.' in var_path:
-                    parts = var_path.split('.')
-                    value = context
+                # Handle nested property access with array indexing (e.g., attachments.vault_files[0].vault_filename)
+                if '.' in var_path or '[' in var_path:
+                    # Split by dots but preserve array indices
+                    parts = []
+                    current_part = ""
+                    in_bracket = False
                     
+                    for char in var_path:
+                        if char == '[':
+                            if current_part:
+                                parts.append(current_part)
+                                current_part = ""
+                            in_bracket = True
+                            current_part += char
+                        elif char == ']':
+                            current_part += char
+                            parts.append(current_part)
+                            current_part = ""
+                            in_bracket = False
+                        elif char == '.' and not in_bracket:
+                            if current_part:
+                                parts.append(current_part)
+                                current_part = ""
+                        else:
+                            current_part += char
+                    
+                    if current_part:
+                        parts.append(current_part)
+                    
+                    value = context
                     logger.debug(f"Navigating path: {parts}")
+                    
                     for i, part in enumerate(parts):
+                        part = str(part)
                         logger.debug(f"  Step {i}: accessing '{part}' in {type(value)}")
-                        if isinstance(value, dict) and part in value:
-                            value = value[part]
-                            logger.debug(f"  Found: {repr(value)}")
+                        # Handle array indexing
+                        if part.startswith('[') and part.endswith(']'):
+                            try:
+                                index = int(part[1:-1])  # Remove brackets and convert to int
+                                if isinstance(value, list) and 0 <= index < len(value):
+                                    value = value[index]
+                                    logger.debug(f"  Found array element at index {index}: {repr(value)}")
+                                else:
+                                    logger.error(f"Cannot access array index {index} in {type(value)}")
+                                    return match.group(0)  # Return original if not found
+                            except (ValueError, IndexError):
+                                logger.error(f"Invalid array index: {part}")
+                                return match.group(0)
+                            continue  # Always continue to next part after array indexing
+                        # Only use string keys for dicts, skip if part is an array index
+                        if not (part.startswith('[') and part.endswith(']')) and isinstance(value, dict):
+                            key = str(part)
+                            if key in value:
+                                value = value[key]
+                                logger.debug(f"  Found: {repr(value)}")
+                            else:
+                                logger.error(f"Cannot access {var_path}: '{key}' not found in {type(value)}")
+                                logger.error(f"Available keys: {list(value.keys())}")
+                                return match.group(0)  # Return original if not found
+                        elif isinstance(value, list):
+                            # If we hit an array but part is not a digit, try to find by key
+                            found = False
+                            for item in value:
+                                if isinstance(part, str) and not (part.startswith('[') and part.endswith(']')) and isinstance(item, dict) and part in item:
+                                    value = item[part]
+                                    found = True
+                                    break
+                            if not found:
+                                logger.error(f"Cannot access {var_path}: '{part}' not found in {type(value)}")
+                                return match.group(0)  # Return original if not found
                         else:
                             logger.error(f"Cannot access {var_path}: '{part}' not found in {type(value)}")
                             if isinstance(value, dict):
                                 logger.error(f"Available keys: {list(value.keys())}")
+                            elif isinstance(value, list):
+                                logger.error(f"Array length: {len(value)}")
                             return match.group(0)  # Return original if not found
                     
                     # Always return string for re.sub compatibility
@@ -325,12 +386,65 @@ class WorkflowManager:
             match = re.match(pattern, text.strip())
             if match:
                 var_path = match.group(1).strip()
-                if '.' in var_path:
-                    parts = var_path.split('.')
+                
+                # Handle nested property access with array indexing
+                if '.' in var_path or '[' in var_path:
+                    parts = []
+                    current_part = ""
+                    in_bracket = False
+                    
+                    for char in var_path:
+                        if char == '[':
+                            if current_part:
+                                parts.append(current_part)
+                                current_part = ""
+                            in_bracket = True
+                            current_part += char
+                        elif char == ']':
+                            current_part += char
+                            parts.append(current_part)
+                            current_part = ""
+                            in_bracket = False
+                        elif char == '.' and not in_bracket:
+                            if current_part:
+                                parts.append(current_part)
+                                current_part = ""
+                        else:
+                            current_part += char
+                    
+                    if current_part:
+                        parts.append(current_part)
+                    
                     value = context
                     for part in parts:
-                        if isinstance(value, dict) and part in value:
-                            value = value[part]
+                        part = str(part)
+                        # Handle array indexing
+                        if part.startswith('[') and part.endswith(']'):
+                            try:
+                                index = int(part[1:-1])
+                                if isinstance(value, list) and 0 <= index < len(value):
+                                    value = value[index]
+                                else:
+                                    return text  # Return original if not found
+                            except (ValueError, IndexError):
+                                return text
+                            continue  # Always continue to next part after array indexing
+                        # Only use string keys for dicts, skip if part is an array index
+                        if not (part.startswith('[') and part.endswith(']')) and isinstance(value, dict):
+                            key = str(part)
+                            if key in value:
+                                value = value[key]
+                            else:
+                                return text  # Return original if not found
+                        elif isinstance(value, list):
+                            found = False
+                            for item in value:
+                                if isinstance(part, str) and not (part.startswith('[') and part.endswith(']')) and isinstance(item, dict) and part in item:
+                                    value = item[part]
+                                    found = True
+                                    break
+                            if not found:
+                                return text  # Return original if not found
                         else:
                             return text  # Return original if not found
                 elif var_path in context:

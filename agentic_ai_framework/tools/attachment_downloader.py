@@ -17,6 +17,7 @@ import hashlib
 import json
 
 from .base_tool import BaseTool
+from .file_vault import FileVaultTool
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,16 @@ class EmailAttachmentDownloaderTool(BaseTool):
                     "type": "boolean",
                     "description": "Attempt to decode base64-encoded content",
                     "default": True
+                },
+                "store_in_vault": {
+                    "type": "boolean",
+                    "description": "Store downloaded files in the secure file vault",
+                    "default": False
+                },
+                "vault_prefix": {
+                    "type": "string",
+                    "description": "Prefix for files stored in vault (e.g., 'email_attachments_')",
+                    "default": "email_attachment_"
                 }
             },
             "required": ["email_data"]
@@ -101,6 +112,8 @@ class EmailAttachmentDownloaderTool(BaseTool):
         sanitize_filenames = parameters.get("sanitize_filenames", True)
         max_file_size = parameters.get("max_file_size", 0)
         decode_base64 = parameters.get("decode_base64", True)
+        store_in_vault = parameters.get("store_in_vault", False)
+        vault_prefix = parameters.get("vault_prefix", "email_attachment_")
         
         # Handle case where email_data is passed as a string
         if isinstance(email_data, str):
@@ -133,6 +146,11 @@ class EmailAttachmentDownloaderTool(BaseTool):
             if file_type and downloaded_files:
                 attachment_content = self._extract_file_content(downloaded_files[0], file_type)
             
+            # Store files in vault if requested
+            vault_files = []
+            if store_in_vault and downloaded_files:
+                vault_files = await self._store_files_in_vault(downloaded_files, vault_prefix, email_data)
+            
             return {
                 "status": "downloaded",
                 "download_path": base_download_path,
@@ -140,7 +158,9 @@ class EmailAttachmentDownloaderTool(BaseTool):
                 "total_files": len(downloaded_files),
                 "total_size": sum(f["size"] for f in downloaded_files),
                 "attachment_content": attachment_content,
-                "message": f"Successfully downloaded {len(downloaded_files)} attachments"
+                "vault_files": vault_files,
+                "stored_in_vault": store_in_vault,
+                "message": f"Successfully downloaded {len(downloaded_files)} attachments" + (" and stored in vault" if store_in_vault else "")
             }
             
         except Exception as e:
@@ -178,16 +198,75 @@ class EmailAttachmentDownloaderTool(BaseTool):
             base_path = tempfile.gettempdir()
         
         if create_subdirectories:
-            # Create subdirectory for this email
-            email_id = email_data.get("id", "unknown")
-            timestamp = email_data.get("headers", {}).get("date_timestamp", "")
-            if timestamp:
-                from datetime import datetime
-                date_str = datetime.fromtimestamp(timestamp).strftime("%Y%m%d_%H%M%S")
-            else:
-                date_str = "unknown_date"
+            # Handle nested email data structure from email_checker
+            actual_email_data = email_data
+            if "email" in email_data and isinstance(email_data["email"], dict):
+                actual_email_data = email_data["email"]
             
-            subdir_name = f"email_{email_id}_{date_str}"
+            # Create subdirectory for this email
+            email_id = actual_email_data.get("id", "unknown")
+            
+            # Extract sender information
+            from_addr = actual_email_data.get("from", "unknown")
+            # Clean sender address (remove angle brackets and extract email)
+            import re
+            email_match = re.search(r'<(.+?)>', from_addr)
+            if email_match:
+                sender_email = email_match.group(1)
+            else:
+                # If no angle brackets, try to extract email from the string
+                email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', from_addr)
+                sender_email = email_match.group(0) if email_match else "unknown"
+            
+            # Clean sender email for filesystem safety
+            sender_email = re.sub(r'[^\w\.-]', '_', sender_email)
+            
+            # Extract and parse date
+            date_str = "unknown_date"
+            date_field = actual_email_data.get("date", "")
+            if date_field:
+                try:
+                    from email.utils import parsedate_to_datetime
+                    from datetime import datetime
+                    
+                    # Try to parse the email date
+                    parsed_date = parsedate_to_datetime(date_field)
+                    date_str = parsed_date.strftime("%Y%m%d_%H%M%S")
+                except Exception:
+                    # Fallback: try to extract date from string
+                    try:
+                        # Try common date formats
+                        import re
+                        date_patterns = [
+                            r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})',  # YYYY-MM-DD or YYYY/MM/DD
+                            r'(\d{1,2})[-/](\d{1,2})[-/](\d{4})',  # MM-DD-YYYY or MM/DD/YYYY
+                            r'(\d{1,2})[-/](\d{1,2})[-/](\d{2})',  # MM-DD-YY or MM/DD/YY
+                        ]
+                        
+                        for pattern in date_patterns:
+                            match = re.search(pattern, date_field)
+                            if match:
+                                groups = match.groups()
+                                if len(groups) == 3:
+                                    if len(groups[0]) == 4:  # YYYY-MM-DD format
+                                        year, month, day = groups
+                                    elif len(groups[2]) == 4:  # MM-DD-YYYY format
+                                        month, day, year = groups
+                                    else:  # MM-DD-YY format
+                                        month, day, year = groups
+                                        year = f"20{year}"  # Assume 20xx
+                                    
+                                    # Add current time since we don't have it
+                                    from datetime import datetime
+                                    now = datetime.now()
+                                    date_str = f"{year}{month.zfill(2)}{day.zfill(2)}_{now.strftime('%H%M%S')}"
+                                    break
+                    except Exception:
+                        # If all parsing fails, use current timestamp
+                        from datetime import datetime
+                        date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            subdir_name = f"email_{sender_email}_{date_str}"
             full_path = os.path.join(base_path, subdir_name)
         else:
             full_path = base_path
@@ -510,4 +589,78 @@ class EmailAttachmentDownloaderTool(BaseTool):
             return file_info
             
         except Exception as e:
-            return {"error": str(e)} 
+            return {"error": str(e)}
+
+    async def _store_files_in_vault(self, files: List[Dict[str, Any]], vault_prefix: str, email_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Store downloaded files in the secure file vault"""
+        vault_files = []
+        vault_tool = FileVaultTool()
+        
+        # Handle nested email data structure from email_checker
+        actual_email_data = email_data
+        if "email" in email_data and isinstance(email_data["email"], dict):
+            actual_email_data = email_data["email"]
+        
+        for file_info in files:
+            if file_info.get("path") and os.path.exists(file_info["path"]):
+                try:
+                    file_path = file_info["path"]
+                    file_name = file_info["filename"]
+                    
+                    # Create a unique vault filename with prefix and email info
+                    sender_email = "unknown"
+                    from_addr = actual_email_data.get("from", "unknown")
+                    if from_addr:
+                        import re
+                        email_match = re.search(r'<(.+?)>', from_addr)
+                        if email_match:
+                            sender_email = email_match.group(1)
+                        else:
+                            email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', from_addr)
+                            if email_match:
+                                sender_email = email_match.group(0)
+                    
+                    # Clean sender email for filesystem safety
+                    sender_email = re.sub(r'[^\w\.-]', '_', sender_email)
+                    
+                    # Create vault filename
+                    vault_filename = f"{vault_prefix}{sender_email}_{file_name}"
+                    
+                    # Read file content
+                    content_type, _ = mimetypes.guess_type(file_path)
+                    is_text = content_type and (content_type.startswith('text/') or content_type == 'application/json')
+                    
+                    if is_text:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        content_type_param = "text"
+                    else:
+                        with open(file_path, 'rb') as f:
+                            binary_content = f.read()
+                        content = base64.b64encode(binary_content).decode('utf-8')
+                        content_type_param = "binary"
+                    
+                    # Store file in vault
+                    vault_result = await vault_tool.execute({
+                        "action": "write",
+                        "filename": vault_filename,
+                        "content": content,
+                        "content_type": content_type_param,
+                        "overwrite": True
+                    })
+                    
+                    if vault_result.get("status") == "written":
+                        vault_files.append({
+                            "original_path": file_path,
+                            "vault_filename": vault_filename,
+                            "vault_path": vault_result.get("file_path"),
+                            "size": vault_result.get("size"),
+                            "md5_hash": vault_result.get("md5_hash"),
+                            "message": f"Stored in vault as {vault_filename}"
+                        })
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to store file {file_info.get('filename', 'unknown')} in vault: {e}")
+                    continue
+        
+        return vault_files 
