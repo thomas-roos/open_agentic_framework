@@ -4,7 +4,7 @@ from .base_tool import BaseTool
 from .email_sender import EmailSenderTool
 from .email_checker import EmailCheckerTool
 from .email_parser import EmailParserTool
-from .attachment_downloader import AttachmentDownloaderTool
+from .attachment_downloader import EmailAttachmentDownloaderTool
 from .file_vault import FileVaultTool
 from .http_client import HttpClientTool
 from .data_extractor import DataExtractorTool
@@ -17,7 +17,7 @@ __all__ = [
     'EmailSenderTool', 
     'EmailCheckerTool',
     'EmailParserTool',
-    'AttachmentDownloaderTool',
+    'EmailAttachmentDownloaderTool',
     'FileVaultTool',
     'HttpClientTool',
     'DataExtractorTool',

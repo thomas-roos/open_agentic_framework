@@ -20,12 +20,12 @@ from .base_tool import BaseTool
 
 logger = logging.getLogger(__name__)
 
-class AttachmentDownloaderTool(BaseTool):
+class EmailAttachmentDownloaderTool(BaseTool):
     """Tool for downloading email attachments to temporary locations"""
     
     @property
     def name(self) -> str:
-        return "attachment_downloader"
+        return "email_attachment_downloader"
     
     @property
     def description(self) -> str:
@@ -101,6 +101,14 @@ class AttachmentDownloaderTool(BaseTool):
         sanitize_filenames = parameters.get("sanitize_filenames", True)
         max_file_size = parameters.get("max_file_size", 0)
         decode_base64 = parameters.get("decode_base64", True)
+        
+        # Handle case where email_data is passed as a string
+        if isinstance(email_data, str):
+            try:
+                import json
+                email_data = json.loads(email_data)
+            except json.JSONDecodeError:
+                raise Exception("email_data string could not be parsed as JSON")
         
         try:
             # Get the email message

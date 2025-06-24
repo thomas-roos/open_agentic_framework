@@ -365,29 +365,23 @@ class EmailCheckerTool(BaseTool):
             for email_id in email_ids:
                 try:
                     # Fetch email headers and flags (using PEEK to avoid marking as read)
-                    status, msg_data = server.fetch(email_id, "(BODY.PEEK[HEADER] FLAGS)")
+                    status, msg_data = server.fetch(email_id, "(BODY.PEEK[] FLAGS)")
                     if status != "OK" or not msg_data:
                         continue
                     
                     # Parse the response - msg_data is a list of tuples
-                    header_data = None
-                    flags_data = None
-                    
+                    email_content = None
                     for item in msg_data:
                         if isinstance(item, tuple) and len(item) >= 2:
-                            if item[1] is not None:
-                                if isinstance(item[1], bytes):
-                                    # This is the header data
-                                    header_data = item[1]
-                                elif isinstance(item[1], str) and item[1].startswith('FLAGS'):
-                                    # This is the flags data
-                                    flags_data = item[1]
+                            if item[1] is not None and isinstance(item[1], bytes):
+                                email_content = item[1]
+                                break
                     
-                    if not header_data:
+                    if not email_content:
                         continue
                     
                     # Parse email headers
-                    email_message = message_from_bytes(header_data)
+                    email_message = message_from_bytes(email_content)
                     
                     # Extract basic info
                     subject = self._decode_header(email_message.get("Subject", ""))
@@ -397,12 +391,17 @@ class EmailCheckerTool(BaseTool):
                     
                     # Check if email is read by parsing flags
                     is_read = False
-                    if flags_data:
-                        # Parse flags string like "FLAGS (\\Seen \\Answered)"
-                        flags_match = re.search(r'FLAGS \(([^)]*)\)', flags_data)
-                        if flags_match:
-                            flags = flags_match.group(1).split()
-                            is_read = "\\Seen" in flags or "SEEN" in flags
+                    # Look for flags in the response data
+                    for item in msg_data:
+                        if isinstance(item, tuple) and len(item) >= 2:
+                            item_data = item[1]
+                            if isinstance(item_data, str) and item_data.startswith('FLAGS'):
+                                # Parse flags string like "FLAGS (\\Seen \\Answered)"
+                                flags_match = re.search(r'FLAGS \(([^)]*)\)', item_data)
+                                if flags_match:
+                                    flags = flags_match.group(1).split()
+                                    is_read = "\\Seen" in flags or "SEEN" in flags
+                                break
                     
                     emails.append({
                         "id": email_id,
@@ -491,7 +490,7 @@ class EmailCheckerTool(BaseTool):
                 raise Exception(f"Failed to select folder {folder}: {messages}")
             
             # Fetch email content (using PEEK to avoid marking as read)
-            status, msg_data = server.fetch(email_id, "(RFC822.PEEK)")
+            status, msg_data = server.fetch(email_id, "(BODY.PEEK[] FLAGS)")
             if status != "OK" or not msg_data:
                 raise Exception(f"Failed to fetch email: {msg_data}")
             
