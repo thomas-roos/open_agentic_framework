@@ -205,9 +205,20 @@ class EmailCheckerTool(BaseTool):
             # Parse folder names
             folder_list = []
             for folder in folders:
-                folder_bytes = folder.decode('utf-8')
+                if folder is None:
+                    continue
+                
+                # Convert to string and parse
+                if isinstance(folder, bytes):
+                    folder_str = folder.decode('utf-8')
+                elif isinstance(folder, str):
+                    folder_str = folder
+                else:
+                    continue
+                
                 # Extract folder name from IMAP LIST response
-                match = re.search(r'\(([^)]*)\) "([^"]*)" "([^"]*)"', folder_bytes)
+                # Format: (flags) "delimiter" "name"
+                match = re.search(r'\(([^)]*)\) "([^"]*)" "([^"]*)"', folder_str)
                 if match:
                     flags, delimiter, name = match.groups()
                     folder_list.append({
@@ -353,14 +364,30 @@ class EmailCheckerTool(BaseTool):
             emails = []
             for email_id in email_ids:
                 try:
-                    # Fetch email headers
-                    status, msg_data = server.fetch(email_id, "(BODY.PEEK[HEADER])")
-                    if status != "OK":
+                    # Fetch email headers and flags (using PEEK to avoid marking as read)
+                    status, msg_data = server.fetch(email_id, "(BODY.PEEK[HEADER] FLAGS)")
+                    if status != "OK" or not msg_data:
+                        continue
+                    
+                    # Parse the response - msg_data is a list of tuples
+                    header_data = None
+                    flags_data = None
+                    
+                    for item in msg_data:
+                        if isinstance(item, tuple) and len(item) >= 2:
+                            if item[1] is not None:
+                                if isinstance(item[1], bytes):
+                                    # This is the header data
+                                    header_data = item[1]
+                                elif isinstance(item[1], str) and item[1].startswith('FLAGS'):
+                                    # This is the flags data
+                                    flags_data = item[1]
+                    
+                    if not header_data:
                         continue
                     
                     # Parse email headers
-                    email_content = msg_data[0][1]
-                    email_message = message_from_bytes(email_content)
+                    email_message = message_from_bytes(header_data)
                     
                     # Extract basic info
                     subject = self._decode_header(email_message.get("Subject", ""))
@@ -368,12 +395,17 @@ class EmailCheckerTool(BaseTool):
                     to_addr = self._decode_header(email_message.get("To", ""))
                     date = email_message.get("Date", "")
                     
-                    # Check if email is read
-                    flags = email_message.get("X-Flags", "")
-                    is_read = "\\Seen" in flags or "SEEN" in flags
+                    # Check if email is read by parsing flags
+                    is_read = False
+                    if flags_data:
+                        # Parse flags string like "FLAGS (\\Seen \\Answered)"
+                        flags_match = re.search(r'FLAGS \(([^)]*)\)', flags_data)
+                        if flags_match:
+                            flags = flags_match.group(1).split()
+                            is_read = "\\Seen" in flags or "SEEN" in flags
                     
                     emails.append({
-                        "id": email_id.decode(),
+                        "id": email_id,
                         "subject": subject,
                         "from": from_addr,
                         "to": to_addr,
@@ -437,32 +469,57 @@ class EmailCheckerTool(BaseTool):
         """Read a specific IMAP email"""
         try:
             import imaplib
+            
+            # Create SSL context
             ssl_context = ssl.create_default_context()
             if not config["use_ssl"]:
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
+            
+            # Connect to IMAP server
             if config["use_ssl"]:
                 server = imaplib.IMAP4_SSL(config["host"], config["port"], ssl_context=ssl_context)
             else:
                 server = imaplib.IMAP4(config["host"], config["port"])
+            
+            # Login
             server.login(config["username"], config["password"])
+            
+            # Select folder
             status, messages = server.select(folder)
             if status != "OK":
                 raise Exception(f"Failed to select folder {folder}: {messages}")
-            status, msg_data = server.fetch(email_id, "(RFC822)")
-            if status != "OK":
+            
+            # Fetch email content (using PEEK to avoid marking as read)
+            status, msg_data = server.fetch(email_id, "(RFC822.PEEK)")
+            if status != "OK" or not msg_data:
                 raise Exception(f"Failed to fetch email: {msg_data}")
-            email_content = msg_data[0][1]
+            
+            # Parse the response - msg_data is a list of tuples
+            email_content = None
+            for item in msg_data:
+                if isinstance(item, tuple) and len(item) >= 2:
+                    if item[1] is not None and isinstance(item[1], bytes):
+                        email_content = item[1]
+                        break
+            
+            if not email_content:
+                raise Exception("No email content found in response")
+            
+            # Parse email message
             email_message = message_from_bytes(email_content)
             email_data = self._parse_email_message(email_message, include_attachments)
             email_data["id"] = email_id
-            email_data["raw_content"] = email_content  # Add raw content
+            email_data["raw_content"] = email_content
+            
             server.logout()
+            
             return {
                 "protocol": "imap",
                 "email": email_data,
                 "message": f"Successfully read IMAP email {email_id} from {folder}"
             }
+            
         except Exception as e:
             error_msg = f"Failed to read IMAP email {email_id}: {e}"
             logger.error(error_msg)
