@@ -23,12 +23,13 @@ logger = logging.getLogger(__name__)
 class FileVaultTool(BaseTool):
     """Secure file vault for temporary file storage and retrieval"""
     
-    def __init__(self):
-        """Initialize the file vault with a secure temporary directory"""
+    def __init__(self, vault_id: str = ""):
+        """Initialize the file vault with a secure temporary directory, optionally using a provided vault_id"""
         super().__init__()
         self.vault_path = None
         self.vault_id = None
-        self._initialize_vault()
+        self._explicit_vault_id = bool(vault_id and isinstance(vault_id, str) and vault_id.strip())
+        self._initialize_vault(vault_id)
     
     @property
     def name(self) -> str:
@@ -81,27 +82,26 @@ class FileVaultTool(BaseTool):
                     "type": "boolean",
                     "description": "Include file metadata in list results",
                     "default": False
+                },
+                "vault_id": {
+                    "type": "string",
+                    "description": "Vault ID to use for this operation. If not provided, a new vault will be created."
                 }
             },
             "required": ["action"]
         }
     
-    def _initialize_vault(self):
-        """Initialize the secure vault directory"""
-        # Create a unique vault ID
+    def _initialize_vault(self, vault_id: str = ""):
+        """Initialize the secure vault directory, optionally using a provided vault_id"""
         import uuid
-        self.vault_id = str(uuid.uuid4())[:8]
-        
-        # Create vault directory in system temp location
+        if vault_id and isinstance(vault_id, str) and vault_id.strip():
+            self.vault_id = vault_id
+        else:
+            self.vault_id = str(uuid.uuid4())[:8]
         vault_name = f"agentic_vault_{self.vault_id}"
-        self.vault_path = os.path.join(tempfile.gettempdir(), vault_name)
-        
-        # Create the vault directory
+        self.vault_path = os.path.join(str(tempfile.gettempdir()), vault_name)
         os.makedirs(self.vault_path, exist_ok=True)
-        
-        # Set restrictive permissions (read/write for owner only)
         os.chmod(self.vault_path, 0o700)
-        
         logger.info(f"Initialized file vault: {self.vault_path}")
     
     async def execute(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
@@ -117,6 +117,11 @@ class FileVaultTool(BaseTool):
         Raises:
             Exception: If operation fails or security check fails
         """
+        # Accept vault_id as a parameter
+        vault_id = parameters.get("vault_id", "")
+        if vault_id and vault_id != self.vault_id:
+            self._initialize_vault(str(vault_id))
+            self._explicit_vault_id = True
         action = parameters["action"]
         
         if action == "write":
@@ -158,16 +163,16 @@ class FileVaultTool(BaseTool):
             raise Exception(f"Executable files are not allowed: {safe_filename}")
         
         # Build file path
-        file_path = os.path.join(self.vault_path, safe_filename)
+        file_path = os.path.join(str(self.vault_path or ''), str(safe_filename or ''))
         
         # Check if file exists
-        if os.path.exists(file_path) and not overwrite:
+        if os.path.exists(str(file_path or '')) and not overwrite:
             raise Exception(f"File already exists: {safe_filename}. Use overwrite=true to overwrite.")
         
         try:
             # Write content based on type
             if content_type == "text":
-                with open(file_path, 'w', encoding=encoding) as f:
+                with open(str(file_path or ''), 'w', encoding=encoding) as f:
                     f.write(content)
             elif content_type == "binary":
                 # Decode base64 content
@@ -176,13 +181,13 @@ class FileVaultTool(BaseTool):
                 except Exception as e:
                     raise Exception(f"Invalid base64 content: {e}")
                 
-                with open(file_path, 'wb') as f:
+                with open(str(file_path or ''), 'wb') as f:
                     f.write(binary_content)
             else:
                 raise Exception(f"Unsupported content type: {content_type}")
             
             # Get file info
-            file_info = self._get_file_metadata(file_path)
+            file_info = self._get_file_metadata(str(file_path or ''))
             
             return {
                 "status": "written",
@@ -208,33 +213,33 @@ class FileVaultTool(BaseTool):
         
         # Validate filename
         safe_filename = self._sanitize_filename(filename)
-        file_path = os.path.join(self.vault_path, safe_filename)
+        file_path = os.path.join(str(self.vault_path or ''), str(safe_filename or ''))
         
         # Security check: ensure file is within vault
-        if not self._is_file_in_vault(file_path):
+        if not self._is_file_in_vault(str(file_path or '')):
             raise Exception(f"Access denied: {filename}")
         
-        if not os.path.exists(file_path):
+        if not os.path.exists(str(file_path or '')):
             raise Exception(f"File not found: {safe_filename}")
         
         try:
             # Determine content type
-            content_type, _ = mimetypes.guess_type(file_path)
+            content_type, _ = mimetypes.guess_type(str(file_path or ''))
             is_text = content_type and (content_type.startswith('text/') or content_type == 'application/json')
             
             # Read file content
             if is_text:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(str(file_path or ''), 'r', encoding='utf-8') as f:
                     content = f.read()
                 content_type = "text"
             else:
-                with open(file_path, 'rb') as f:
+                with open(str(file_path or ''), 'rb') as f:
                     binary_content = f.read()
                 content = base64.b64encode(binary_content).decode('utf-8')
                 content_type = "binary"
             
             # Get file info
-            file_info = self._get_file_metadata(file_path)
+            file_info = self._get_file_metadata(str(file_path or ''))
             
             return {
                 "status": "read",
@@ -260,7 +265,7 @@ class FileVaultTool(BaseTool):
             import glob
             
             # Build pattern path
-            pattern_path = os.path.join(self.vault_path, pattern)
+            pattern_path = os.path.join(str(self.vault_path or ''), pattern)
             
             # Get matching files
             matching_files = glob.glob(pattern_path)
@@ -277,7 +282,7 @@ class FileVaultTool(BaseTool):
                     }
                     
                     if include_metadata:
-                        metadata = self._get_file_metadata(file_path)
+                        metadata = self._get_file_metadata(str(file_path or ''))
                         file_info.update(metadata)
                     
                     files.append(file_info)
@@ -305,21 +310,21 @@ class FileVaultTool(BaseTool):
         
         # Validate filename
         safe_filename = self._sanitize_filename(filename)
-        file_path = os.path.join(self.vault_path, safe_filename)
+        file_path = os.path.join(str(self.vault_path or ''), str(safe_filename or ''))
         
         # Security check: ensure file is within vault
-        if not self._is_file_in_vault(file_path):
+        if not self._is_file_in_vault(str(file_path or '')):
             raise Exception(f"Access denied: {filename}")
         
-        if not os.path.exists(file_path):
+        if not os.path.exists(str(file_path or '')):
             raise Exception(f"File not found: {safe_filename}")
         
         try:
             # Get file info before deletion
-            file_info = self._get_file_metadata(file_path)
+            file_info = self._get_file_metadata(str(file_path or ''))
             
             # Delete the file
-            os.remove(file_path)
+            os.remove(str(file_path or ''))
             
             return {
                 "status": "deleted",
@@ -342,17 +347,17 @@ class FileVaultTool(BaseTool):
         
         # Validate filename
         safe_filename = self._sanitize_filename(filename)
-        file_path = os.path.join(self.vault_path, safe_filename)
+        file_path = os.path.join(str(self.vault_path or ''), str(safe_filename or ''))
         
         # Security check: ensure file is within vault
-        if not self._is_file_in_vault(file_path):
+        if not self._is_file_in_vault(str(file_path or '')):
             raise Exception(f"Access denied: {filename}")
         
-        if not os.path.exists(file_path):
+        if not os.path.exists(str(file_path or '')):
             raise Exception(f"File not found: {safe_filename}")
         
         try:
-            file_info = self._get_file_metadata(file_path)
+            file_info = self._get_file_metadata(str(file_path or ''))
             
             return {
                 "status": "info",
@@ -370,8 +375,8 @@ class FileVaultTool(BaseTool):
     async def _cleanup_vault(self) -> Dict[str, Any]:
         """Clean up the entire vault"""
         try:
-            if os.path.exists(self.vault_path):
-                shutil.rmtree(self.vault_path)
+            if os.path.exists(str(self.vault_path or '')):
+                shutil.rmtree(str(self.vault_path or ''))
                 logger.info(f"Cleaned up vault: {self.vault_path}")
             
             return {
@@ -427,8 +432,8 @@ class FileVaultTool(BaseTool):
         """Check if file is within the vault directory"""
         try:
             # Resolve paths to handle symlinks
-            vault_real = os.path.realpath(self.vault_path)
-            file_real = os.path.realpath(file_path)
+            vault_real = os.path.realpath(str(self.vault_path or ''))
+            file_real = os.path.realpath(str(file_path or ''))
             
             # Check if file is within vault directory
             return file_real.startswith(vault_real + os.sep)
@@ -438,16 +443,16 @@ class FileVaultTool(BaseTool):
     def _get_file_metadata(self, file_path: str) -> Dict[str, Any]:
         """Get file metadata"""
         try:
-            stat = os.stat(file_path)
+            stat = os.stat(str(file_path or ''))
             
             # Calculate MD5 hash
             md5_hash = hashlib.md5()
-            with open(file_path, 'rb') as f:
+            with open(str(file_path or ''), 'rb') as f:
                 for chunk in iter(lambda: f.read(4096), b""):
                     md5_hash.update(chunk)
             
             # Determine content type
-            content_type, _ = mimetypes.guess_type(file_path)
+            content_type, _ = mimetypes.guess_type(str(file_path or ''))
             
             return {
                 "size": stat.st_size,
@@ -472,14 +477,18 @@ class FileVaultTool(BaseTool):
         return {
             "vault_id": self.vault_id,
             "vault_path": self.vault_path,
-            "exists": os.path.exists(self.vault_path) if self.vault_path else False
+            "exists": os.path.exists(str(self.vault_path or '')) if self.vault_path else False
         }
     
     def __del__(self):
-        """Cleanup vault on deletion"""
+        """Cleanup vault on deletion - only if not a shared vault"""
         try:
-            if hasattr(self, 'vault_path') and self.vault_path and os.path.exists(self.vault_path):
-                shutil.rmtree(self.vault_path)
-                logger.info(f"Cleaned up vault on deletion: {self.vault_path}")
+            # Only cleanup if this is a private vault (no explicit vault_id provided)
+            # Shared vaults (with explicit vault_id) should persist across tool instances
+            if (hasattr(self, '_explicit_vault_id') and not self._explicit_vault_id and 
+                hasattr(self, 'vault_path') and self.vault_path and 
+                os.path.exists(str(self.vault_path or ''))):
+                shutil.rmtree(str(self.vault_path or ''))
+                logger.info(f"Cleaned up private vault on deletion: {self.vault_path}")
         except Exception as e:
             logger.warning(f"Failed to cleanup vault on deletion: {e}") 

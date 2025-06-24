@@ -15,6 +15,7 @@ from email import message_from_bytes, message_from_string
 import mimetypes
 import hashlib
 import json
+import uuid
 
 from .base_tool import BaseTool
 from .file_vault import FileVaultTool
@@ -86,6 +87,11 @@ class EmailAttachmentDownloaderTool(BaseTool):
                     "type": "string",
                     "description": "Prefix for files stored in vault (e.g., 'email_attachments_')",
                     "default": "email_attachment_"
+                },
+                "vault_id": {
+                    "type": "string",
+                    "description": "Vault ID for storing files in the secure file vault",
+                    "default": None
                 }
             },
             "required": ["email_data"]
@@ -114,6 +120,7 @@ class EmailAttachmentDownloaderTool(BaseTool):
         decode_base64 = parameters.get("decode_base64", True)
         store_in_vault = parameters.get("store_in_vault", False)
         vault_prefix = parameters.get("vault_prefix", "email_attachment_")
+        vault_id = parameters.get("vault_id") or ""
         
         # Handle case where email_data is passed as a string
         if isinstance(email_data, str):
@@ -148,8 +155,13 @@ class EmailAttachmentDownloaderTool(BaseTool):
             
             # Store files in vault if requested
             vault_files = []
+            vault_result_id = None
+            vault_path = None
             if store_in_vault and downloaded_files:
-                vault_files = await self._store_files_in_vault(downloaded_files, vault_prefix, email_data)
+                vault_result = await self._store_files_in_vault(downloaded_files, vault_prefix, email_data, vault_id)
+                vault_files = vault_result.get("vault_files", [])
+                vault_result_id = vault_result.get("vault_id")
+                vault_path = vault_result.get("vault_path")
             
             return {
                 "status": "downloaded",
@@ -159,6 +171,8 @@ class EmailAttachmentDownloaderTool(BaseTool):
                 "total_size": sum(f["size"] for f in downloaded_files),
                 "attachment_content": attachment_content,
                 "vault_files": vault_files,
+                "vault_id": vault_result_id,
+                "vault_path": vault_path,
                 "stored_in_vault": store_in_vault,
                 "message": f"Successfully downloaded {len(downloaded_files)} attachments" + (" and stored in vault" if store_in_vault else "")
             }
@@ -591,10 +605,15 @@ class EmailAttachmentDownloaderTool(BaseTool):
         except Exception as e:
             return {"error": str(e)}
 
-    async def _store_files_in_vault(self, files: List[Dict[str, Any]], vault_prefix: str, email_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _store_files_in_vault(self, files: List[Dict[str, Any]], vault_prefix: str, email_data: Dict[str, Any], vault_id: str = "") -> Dict[str, Any]:
         """Store downloaded files in the secure file vault"""
         vault_files = []
-        vault_tool = FileVaultTool()
+        
+        # Generate a vault_id if none is provided
+        if not vault_id:
+            vault_id = str(uuid.uuid4())[:8]
+        
+        vault_tool = FileVaultTool(vault_id)
         
         # Handle nested email data structure from email_checker
         actual_email_data = email_data
@@ -663,4 +682,9 @@ class EmailAttachmentDownloaderTool(BaseTool):
                     logger.warning(f"Failed to store file {file_info.get('filename', 'unknown')} in vault: {e}")
                     continue
         
-        return vault_files 
+        # Return vault files along with vault_id for persistence
+        return {
+            "vault_files": vault_files,
+            "vault_id": vault_tool.vault_id,
+            "vault_path": vault_tool.vault_path
+        } 
