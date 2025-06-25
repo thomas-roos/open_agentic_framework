@@ -657,7 +657,9 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                     query: '',
                     default: '',
                     format: 'text',
-                    find_criteria: {}
+                    find_criteria: {},
+                    field: '',
+                    separator: ','
                 }]
             }
         }));
@@ -1246,7 +1248,8 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                         React.createElement('option', { key: 'path', value: 'path' }, 'Path'),
                                         React.createElement('option', { key: 'regex', value: 'regex' }, 'Regex'),
                                         React.createElement('option', { key: 'literal', value: 'literal' }, 'Literal'),
-                                        React.createElement('option', { key: 'find', value: 'find' }, 'Find')
+                                        React.createElement('option', { key: 'find', value: 'find' }, 'Find'),
+                                        React.createElement('option', { key: 'join_field', value: 'join_field' }, 'Join Field')
                                     ]),
                                     React.createElement('input', {
                                         key: 'query',
@@ -1254,7 +1257,25 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                         type: 'text',
                                         value: ex.query,
                                         onChange: e => handleUpdateExtraction(idx, { query: e.target.value }),
-                                        placeholder: 'Query (path, regex, or value)',
+                                        placeholder: ex.type === 'join_field' ? 'Array path (e.g., components)' : 'Query (path, regex, or value)',
+                                        style: { fontSize: '12px' }
+                                    }),
+                                    ex.type === 'join_field' && React.createElement('input', {
+                                        key: 'field',
+                                        className: 'form-input',
+                                        type: 'text',
+                                        value: ex.field || '',
+                                        onChange: e => handleUpdateExtraction(idx, { field: e.target.value }),
+                                        placeholder: 'Field to join (e.g., purl)',
+                                        style: { fontSize: '12px' }
+                                    }),
+                                    ex.type === 'join_field' && React.createElement('input', {
+                                        key: 'separator',
+                                        className: 'form-input',
+                                        type: 'text',
+                                        value: ex.separator || ',',
+                                        onChange: e => handleUpdateExtraction(idx, { separator: e.target.value }),
+                                        placeholder: 'Separator (default: ,)',
                                         style: { fontSize: '12px' }
                                     }),
                                     React.createElement('input', {

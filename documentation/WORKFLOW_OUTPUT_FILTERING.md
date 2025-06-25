@@ -155,6 +155,42 @@ Find data in arrays using criteria:
 }
 ```
 
+### 5. Join Field Extraction (`type: "join_field"`)
+
+Extract an array at a given path and join all values of a specified field with a separator:
+
+```json
+{
+  "name": "all_purls",
+  "type": "join_field",
+  "query": "components",
+  "field": "purl",
+  "separator": ",",
+  "default": "",
+  "format": "text"
+}
+```
+
+**Parameters:**
+- **`query`** - Array path (e.g., `"components"`, `"dependencies"`)
+- **`field`** - Field name to extract from each array item (e.g., `"purl"`, `"name"`)
+- **`separator`** - String to join values with (default: `","`)
+
+**Example Usage:**
+```json
+{
+  "name": "sbom_purls",
+  "type": "join_field",
+  "query": "components",
+  "field": "purl",
+  "separator": " ",
+  "default": "",
+  "format": "text"
+}
+```
+
+This would extract all PURLs from a components array and join them with spaces.
+
 ## Format Options
 
 ### Text Format (`format: "text"`)

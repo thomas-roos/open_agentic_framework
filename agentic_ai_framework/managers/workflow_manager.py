@@ -632,6 +632,10 @@ class WorkflowManager:
                     value = self._extract_regex_safe(json.dumps(data), query, default_val)
                 elif ext_type == "literal":
                     value = query
+                elif ext_type == "join_field":
+                    field = extraction.get("field", "")
+                    separator = extraction.get("separator", ",")
+                    value = self._extract_join_field(data, query, field, separator, default_val)
                 else:
                     value = default_val
                 
@@ -776,3 +780,52 @@ class WorkflowManager:
                 return str(value)
         except Exception:
             return str(value)
+    
+    def _extract_join_field(self, data: Any, array_path: str, field: str, separator: str, default: str) -> str:
+        """Extract an array at array_path, join all values of field with separator"""
+        try:
+            # Get the actual data object, not a string representation
+            current = data
+            if not array_path or not isinstance(current, dict):
+                return default
+            
+            parts = str(array_path).split('.')
+            
+            for part in parts:
+                if not part:
+                    continue
+                
+                # Handle array indices
+                if part.isdigit():
+                    index = int(part)
+                    if isinstance(current, list) and 0 <= index < len(current):
+                        current = current[index]
+                    else:
+                        return default
+                elif isinstance(current, dict):
+                    current = current.get(part)
+                elif isinstance(current, list):
+                    # If we hit an array but part is not a digit, try to find by key
+                    found = False
+                    for item in current:
+                        if isinstance(item, dict) and part in item:
+                            current = item[part]
+                            found = True
+                            break
+                    if not found:
+                        return default
+                else:
+                    return default
+                    
+                if current is None:
+                    return default
+            
+            # Now current should be the array we want to process
+            if not isinstance(current, list):
+                return default
+            
+            values = [str(item.get(field, "")) for item in current if isinstance(item, dict) and field in item]
+            return separator.join(values)
+        except Exception as e:
+            logger.warning(f"join_field extraction failed: {e}")
+            return default
