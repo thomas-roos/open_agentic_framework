@@ -14,6 +14,12 @@ services:
       - MAX_AGENT_ITERATIONS=10
       - SCHEDULER_INTERVAL=60
       - TOOLS_DIRECTORY=tools
+      # OpenAI Configuration (enable this for OpenAI usage)
+      - OPENAI_ENABLED=true
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=https://api.openai.com/v1
+      - OPENAI_DEFAULT_MODEL=gpt-3.5-turbo
+      - DEFAULT_LLM_PROVIDER=openai
       # Bedrock Configuration (disabled by default)
       - BEDROCK_ENABLED=false
       - BEDROCK_REGION=us-east-1
