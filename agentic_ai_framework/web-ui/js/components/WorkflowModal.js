@@ -1058,12 +1058,14 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                                     key: 'placeholder',
                                                     value: '' 
                                                 }, `Choose ${step.type}`),
-                                                ...(step.type === 'agent' ? agents : tools).map(item => 
-                                                    React.createElement('option', {
-                                                        key: item.name,
-                                                        value: item.name
-                                                    }, item.name)
-                                                )
+                                                ...(step.type === 'agent' ? agents : tools)
+                                                    .sort((a, b) => a.name.localeCompare(b.name))
+                                                    .map(item => 
+                                                        React.createElement('option', {
+                                                            key: item.name,
+                                                            value: item.name
+                                                        }, item.name)
+                                                    )
                                             ])
                                         ]),
 

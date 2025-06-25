@@ -136,7 +136,9 @@ const Tools = () => {
                     React.createElement('div', {
                         key: 'tools-grid',
                         className: 'grid grid-2'
-                    }, tools.map(tool => 
+                    }, tools
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(tool => 
                         React.createElement('div', {
                             key: tool.id || tool.name,
                             className: 'card tool-card'

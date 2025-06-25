@@ -27,6 +27,12 @@ class ToolManager:
         self.tools_directory = tools_directory
         self.config = config
         self.loaded_tools = {}
+        
+        # List of deprecated tool names that should not be registered
+        self.deprecated_tools = {
+            "attachment_downloader"  # Replaced by email_attachment_downloader
+        }
+        
         logger.info(f"Initialized tool manager with directory: {tools_directory}")
     
     def discover_and_register_tools(self):
@@ -107,6 +113,11 @@ class ToolManager:
             tool_instance: Instance of the tool
             class_name: Name of the tool class
         """
+        # Skip deprecated tools
+        if tool_instance.name in self.deprecated_tools:
+            logger.warning(f"Skipping deprecated tool: {tool_instance.name} (replaced by newer version)")
+            return
+        
         # Set dependencies if the tool supports it
         if hasattr(tool_instance, 'set_dependencies'):
             tool_instance.set_dependencies(self.memory_manager, self.config)
@@ -322,14 +333,9 @@ class ToolManager:
         logger.info("Tools reloaded successfully")
     
     def get_tools_status(self) -> Dict[str, Any]:
-        """
-        Get status of all tools
-        
-        Returns:
-            Dictionary with tool status information
-        """
+        """Get status of all tools"""
         return {
             "total_tools": len(self.loaded_tools),
             "loaded_tools": list(self.loaded_tools.keys()),
-            "tools_directory": self.tools_directory
+            "deprecated_tools": list(self.deprecated_tools)
         }

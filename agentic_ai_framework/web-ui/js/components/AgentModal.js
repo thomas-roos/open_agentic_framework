@@ -192,7 +192,9 @@ const AgentModal = ({ agent, tools = [], models = [], onClose, onSave }) => {
                                 key: 'placeholder',
                                 value: '' 
                             }, 'Select a model'),
-                            ...models.map(model => 
+                            ...models
+                                .sort((a, b) => (a.display_name || a.name).localeCompare(b.display_name || b.name))
+                                .map(model => 
                                 React.createElement('option', {
                                     key: model.name,
                                     value: model.name
@@ -217,7 +219,9 @@ const AgentModal = ({ agent, tools = [], models = [], onClose, onSave }) => {
                                 gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
                                 gap: '8px'
                             }
-                        }, tools.map(tool => 
+                        }, tools
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map(tool => 
                             React.createElement('label', {
                                 key: tool.name,
                                 style: {
