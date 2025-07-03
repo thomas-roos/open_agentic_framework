@@ -26,6 +26,64 @@ Practical examples and use cases:
 - Common workflow scenarios
 - Best practices and tips
 
+### 📧 Email Tools
+
+#### Email Parser Tool
+- **Purpose**: Parse and extract data from email messages
+- **Features**: Header parsing, body extraction, attachment detection
+- **Use Cases**: Email automation, data extraction from emails
+
+#### Email Sender Tool
+- **Purpose**: Send emails with attachments and rich content
+- **Features**: SMTP integration, attachment support, HTML formatting
+- **Use Cases**: Automated notifications, report distribution
+
+#### Email Checker Tool
+- **Purpose**: Validate email addresses and check email status
+- **Features**: Email validation, deliverability checking
+- **Use Cases**: Email list validation, contact management
+
+#### Email Attachment Downloader Tool
+- **Purpose**: Download and process email attachments
+- **Features**: Multi-format support, secure downloading
+- **Use Cases**: Document processing, file extraction
+
+#### Email Data Converter Tool
+- **Purpose**: Convert email data between different formats
+- **Features**: Format conversion, data transformation
+- **Use Cases**: Data migration, format standardization
+
+### 🌐 Web & API Tools
+
+#### [HTTP Client Tool](HTTP_CLIENT_TOOL.md)
+- **Purpose**: Make HTTP requests to external APIs and services
+- **Features**: GET/POST requests, authentication, error handling
+- **Use Cases**: API integration, web scraping, service communication
+
+#### [Website Monitor Tool](WEBSITE_MONITOR_TOOL.md)
+- **Purpose**: Monitor website availability and performance
+- **Features**: URL monitoring, status checking, alerting
+- **Use Cases**: Uptime monitoring, performance tracking
+
+### 📊 Data Processing Tools
+
+#### [Data Extractor Tool](DATA_EXTRACTOR_TOOL.md)
+- **Purpose**: Extract structured data from various sources
+- **Features**: Pattern matching, data validation, format conversion
+- **Use Cases**: Data mining, information extraction, ETL processes
+
+#### [JSON Validator Tool](JSON_VALIDATOR_TOOL.md)
+- **Purpose**: Validate and format JSON data
+- **Features**: Schema validation, data formatting, error reporting
+- **Use Cases**: API testing, data quality assurance
+
+### 🔧 Utility Tools
+
+#### [Rate Limiter Utility](RATE_LIMITER_UTILITY.md)
+- **Purpose**: Manage API rate limits and request throttling
+- **Features**: Request tracking, automatic throttling, statistics
+- **Use Cases**: API integration, preventing rate limit violations
+
 ## 🚀 Adding New Tools
 
 When developing new tools for the framework, follow these guidelines:
