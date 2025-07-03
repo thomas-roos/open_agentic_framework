@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "timestamp": "2025-06-25T04:48:01.168397",
+    "timestamp": "2025-07-03T05:35:23.475531",
     "version": "1.0",
-    "backup_name": "email_no_agent_pasing",
+    "backup_name": "fully_functional_config",
     "options": {
       "export_path": "backups",
       "include_memory": false,
@@ -10,13 +10,52 @@
       "include_tools": true,
       "include_scheduled_tasks": true,
       "create_zip": true,
-      "backup_name": "email_no_agent_pasing"
+      "backup_name": "fully_functional_config"
     }
   },
-  "agents": [],
+  "agents": [
+    {
+      "id": 3,
+      "name": "purl_batch_processor",
+      "role": "PURL Batch Processor",
+      "goals": "Execute the purl_license_and_notices workflow and consolidate the results into a single output.",
+      "backstory": "You are a specialzied tool agents that execute agentic workflows to obtain information from PURLs. You will receive one or multiple PURLS, and you will execute the http_client tool for each to obtain information about Licenses and Copyright statements.\n\nUse the http_client tool to call the workflow endpoint for each PURL:\nPOST http://localhost:8000/workflows/purl_license_assessment/execute\nContent-Type: application/json\nBody: {\"context\": {\"purl\": \"<PURL>\"}}\n\n# Rules\nAlways structure your response as a JSON report.",
+      "tools": [
+        "http_client"
+      ],
+      "ollama_model": "gpt-3.5-turbo",
+      "enabled": true,
+      "created_at": "2025-06-25 23:15:47.833547",
+      "updated_at": "2025-06-25 23:22:59.600922"
+    },
+    {
+      "id": 4,
+      "name": "purl_parser",
+      "role": "PURL Parser with Correct ClearlyDefined URL Building",
+      "goals": "Parse Package URLs (PURLs) and build  ClearlyDefined API URLs",
+      "backstory": "PURL PARSING RULES:\n\nInput format: pkg:TYPE/NAMESPACE/NAME@VERSION\n\nPROVIDER MAPPING:\n- pkg:npm=npmjs,pkg:pypi=pypi,pkg:gem=rubygems\n\nNAMESPACE RULES:\n- If PURL has no namespace \u2192 use \"-\"\n- If PURL has namespace \u2192 use that namespace exactly\n- For npm scoped packages like @types/node \u2192 namespace is @types\n\nCLEARLYDEFINED URL FORMAT:\nhttps://api.clearlydefined.io/definitions/{type}/{provider}/{namespace}/{name}/{version}\n\nEXACT EXAMPLES:\n1. pkg:npm/lodash@4.17.21 \u2192 type=npm, provider=npmjs, namespace=-, name=lodash, version=4.17.21\n   URL: https://api.clearlydefined.io/definitions/npm/npmjs/-/lodash/4.17.21\n\n2. pkg:npm/@types/node@18.0.0 \u2192 type=npm, provider=npmjs, namespace=@types, name=node, version=18.0.0\n   URL: https://api.clearlydefined.io/definitions/npm/npmjs/@types/node/18.0.0\n\n3. pkg:pypi/requests@2.28.1 \u2192 type=pypi, provider=pypi, namespace=-, name=requests, version=2.28.1\n   URL: https://api.clearlydefined.io/definitions/pypi/pypi/-/requests/2.28.1\n\n4. pkg:maven/org.springframework/spring-core@5.3.21 \u2192 type=maven, provider=mavencentral, namespace=org.springframework, name=spring-core, version=5.3.21\n   URL: https://api.clearlydefined.io/definitions/maven/mavencentral/org.springframework/spring-core/5.3.21\n\nALWAYS return a JSON object with: {\"type\": \"...\", \"provider\": \"...\", \"namespace\": \"...\", \"name\": \"...\", \"version\": \"...\", \"url\": \"...\"}\n\nValidate the PURL format before processing, make sure the final URL does not repeat type and provider, so it should not be npm for both type and provider.\n If invalid, return an error in the JSON.",
+      "tools": [],
+      "ollama_model": "openai:gpt-3.5-turbo",
+      "enabled": true,
+      "created_at": "2025-06-25 23:15:47.847037",
+      "updated_at": "2025-06-25 23:15:47.847040"
+    },
+    {
+      "id": 5,
+      "name": "OSS_Legal_Notices_Generator",
+      "role": "OSS Legal Notices Generator",
+      "goals": "Produce a Text File Legal Notices file, listing all components, licenses, and copyright information for a project.",
+      "backstory": "You are an Open Source Compliance Engineer.\nAs such, your role is to consolidate the list of packages, with license and copyright information, into a simple text file that allows display attribution to authors and copyright holders.",
+      "tools": [],
+      "ollama_model": "gpt-3.5-turbo",
+      "enabled": true,
+      "created_at": "2025-06-25 23:35:50.134889",
+      "updated_at": "2025-06-25 23:35:50.134917"
+    }
+  ],
   "workflows": [
     {
-      "id": 1,
+      "id": 2,
       "name": "email_test_workflow_no_agent",
       "description": "Test email checker with tool-level configuration",
       "steps": [
@@ -114,6 +153,23 @@
           "context_key": "extracted_purls",
           "use_previous_output": false,
           "preserve_objects": true
+        },
+        {
+          "type": "agent",
+          "name": "purl_batch_processor",
+          "tool": null,
+          "task": "Process the following list of PURLs and generate a license risk report.\n\nPURLs to process: {{extracted_purls.extracted_data.purls}}.\n\nProcess each PURL and consolidate results into a single output with the following structure:\n\n{\n  \"EXECUTIVE SUMMARY\": {\n    \"overall_risk_level\": \"CRITICAL/HIGH/MEDIUM/LOW\",\n    \"total_packages_analyzed\": <number>,\n    \"key_findings\": [\"finding1\", \"finding2\", ...],\n    \"summary\": \"Overall assessment summary\"\n  },\n  \"INDIVIDUAL ASSESSMENTS\": {\n    \"<purl1>\": {license_result1}, {legal_notices1},\n    \"<purl2>\": {license_result2}, {legal_notices2},\n    ...\n  },\n  \"PATTERN ANALYSIS\": {\n    \"common_license_types\": [\"MIT\", \"Apache-2.0\", ...]\n  },\n  \"AGGREGATE STATISTICS\": {\n    \"total_packages\": <number>,\n    \"high_risk_count\": <number>,\n    \"medium_risk_count\": <number>,\n    \"low_risk_count\": <number>,\n    \"license_distribution\": {\"MIT\": <count>, \"Apache-2.0\": <count>, ...}\n  }\n}",
+          "parameters": {},
+          "context_key": "sbom_license_information",
+          "use_previous_output": false,
+          "preserve_objects": false
+        },
+        {
+          "type": "agent",
+          "name": "OSS_Legal_Notices_Generator",
+          "task": "Produce a Legal Notices document for the information {{sbom_license_information}}",
+          "context_key": "legal_notices",
+          "use_previous_output": false
         }
       ],
       "enabled": true,
@@ -125,8 +181,112 @@
       "output_spec": {
         "extractions": []
       },
-      "created_at": "2025-06-24 03:37:05.017164",
-      "updated_at": "2025-06-24 08:01:04.691998"
+      "created_at": "2025-06-25 23:15:47.864781",
+      "updated_at": "2025-06-25 23:40:29.449448"
+    },
+    {
+      "id": 3,
+      "name": "purl_license_assessment",
+      "description": "Complete PURL-based license and security risk assessment workflow with data extraction",
+      "steps": [
+        {
+          "type": "agent",
+          "name": "purl_parser",
+          "tool": null,
+          "task": "parse the purl {{purl}} and produce a ClearlyDefined API call url. Only respond with a JSON with the URL.",
+          "parameters": {},
+          "context_key": "parsed_purl",
+          "use_previous_output": false,
+          "preserve_objects": false
+        },
+        {
+          "type": "tool",
+          "name": "http_client",
+          "tool": null,
+          "task": null,
+          "parameters": {
+            "url": "{{parsed_purl.url}}",
+            "method": "GET",
+            "timeout": 30
+          },
+          "context_key": "raw_api_response",
+          "use_previous_output": false,
+          "preserve_objects": false
+        },
+        {
+          "type": "tool",
+          "name": "data_extractor",
+          "tool": null,
+          "task": null,
+          "parameters": {
+            "source_data": "{{raw_api_response.content.described}}",
+            "extractions": [
+              {
+                "name": "full_raw_data",
+                "type": "path",
+                "query": "raw_text",
+                "default": "no raw_text",
+                "format": "text"
+              }
+            ],
+            "output_format": "object"
+          },
+          "context_key": "package_analysis_metadata",
+          "use_previous_output": false,
+          "preserve_objects": false
+        },
+        {
+          "type": "tool",
+          "name": "data_extractor",
+          "tool": null,
+          "task": null,
+          "parameters": {
+            "source_data": "{{raw_api_response.content.licensed}}",
+            "extractions": [
+              {
+                "name": "full_raw_data",
+                "type": "path",
+                "query": "raw_text",
+                "default": "no raw_text",
+                "format": "text"
+              }
+            ],
+            "output_format": "object"
+          },
+          "context_key": "package_analysis_licensed",
+          "use_previous_output": false,
+          "preserve_objects": false
+        }
+      ],
+      "enabled": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "purl": {
+            "type": "string",
+            "description": "Package URL (PURL) to analyze (e.g., pkg:npm/lodash@4.17.21)"
+          }
+        },
+        "required": [
+          "purl"
+        ]
+      },
+      "output_spec": {
+        "extractions": [
+          {
+            "name": "purl_license_and_notices",
+            "type": "path",
+            "query": "package_analysis_licensed.extracted_data.full_raw_data",
+            "default": "NOASSERTION",
+            "format": "text",
+            "find_criteria": {},
+            "field": "",
+            "separator": ","
+          }
+        ]
+      },
+      "created_at": "2025-06-25 23:15:47.873048",
+      "updated_at": "2025-06-25 23:18:34.541426"
     }
   ],
   "tools": [
@@ -182,8 +342,8 @@
       "class_name": "JsonValidatorTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-24 03:36:35.212022",
-      "updated_at": "2025-06-24 03:36:35.212029"
+      "created_at": "2025-06-25 22:52:38.963243",
+      "updated_at": "2025-06-25 22:52:38.963247"
     },
     {
       "id": 2,
@@ -239,8 +399,8 @@
       "class_name": "HttpClientTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-24 03:36:35.219208",
-      "updated_at": "2025-06-24 03:36:35.219210"
+      "created_at": "2025-06-25 22:52:38.972199",
+      "updated_at": "2025-06-25 22:52:38.972201"
     },
     {
       "id": 3,
@@ -269,7 +429,8 @@
                     "path",
                     "regex",
                     "literal",
-                    "find"
+                    "find",
+                    "join_field"
                   ],
                   "description": "Extraction type"
                 },
@@ -308,6 +469,15 @@
                       "type": "string"
                     }
                   }
+                },
+                "field": {
+                  "type": "string",
+                  "description": "Field to join (for join_field type)"
+                },
+                "separator": {
+                  "type": "string",
+                  "description": "Separator for join_field type",
+                  "default": ","
                 }
               },
               "required": [
@@ -326,8 +496,8 @@
       "class_name": "DataExtractorTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-24 03:36:35.225051",
-      "updated_at": "2025-06-24 03:36:35.225052"
+      "created_at": "2025-06-25 22:52:38.978507",
+      "updated_at": "2025-06-25 22:52:38.978509"
     },
     {
       "id": 4,
@@ -363,8 +533,8 @@
       "class_name": "WebsiteMonitorTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-24 03:36:35.230798",
-      "updated_at": "2025-06-24 03:36:35.230799"
+      "created_at": "2025-06-25 22:52:38.984972",
+      "updated_at": "2025-06-25 22:52:38.984974"
     },
     {
       "id": 5,
@@ -410,63 +580,11 @@
       "class_name": "EmailParserTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-24 03:36:35.236074",
-      "updated_at": "2025-06-24 03:36:35.236075"
+      "created_at": "2025-06-25 22:52:38.991353",
+      "updated_at": "2025-06-25 22:52:38.991354"
     },
     {
       "id": 6,
-      "name": "email_sender",
-      "description": "Send emails using SMTP with SSL/TLS support. Requires SMTP configuration in agent tool_configs (smtp_host, smtp_username, smtp_password).",
-      "parameters_schema": {
-        "type": "object",
-        "properties": {
-          "to": {
-            "type": "string",
-            "description": "Recipient email address"
-          },
-          "subject": {
-            "type": "string",
-            "description": "Email subject line"
-          },
-          "body": {
-            "type": "string",
-            "description": "Email body content"
-          },
-          "cc": {
-            "type": "string",
-            "description": "CC recipients (comma-separated email addresses)",
-            "default": ""
-          },
-          "bcc": {
-            "type": "string",
-            "description": "BCC recipients (comma-separated email addresses)",
-            "default": ""
-          },
-          "html": {
-            "type": "boolean",
-            "description": "Whether the body content is HTML",
-            "default": false
-          },
-          "priority": {
-            "type": "string",
-            "description": "Email priority: low, normal, high",
-            "default": "normal"
-          }
-        },
-        "required": [
-          "to",
-          "subject",
-          "body"
-        ]
-      },
-      "class_name": "EmailSenderTool",
-      "enabled": true,
-      "configuration": {},
-      "created_at": "2025-06-24 03:36:35.247957",
-      "updated_at": "2025-06-24 03:36:35.247958"
-    },
-    {
-      "id": 7,
       "name": "email_checker",
       "description": "Check emails using POP3 or IMAP protocols with SSL support. Supports reading emails, listing folders, and retrieving email content.",
       "parameters_schema": {
@@ -535,11 +653,11 @@
         "imap_password": "fhxqtokpxiwmieoj",
         "imap_use_ssl": true
       },
-      "created_at": "2025-06-24 03:36:35.254549",
-      "updated_at": "2025-06-24 03:37:04.987857"
+      "created_at": "2025-06-25 22:52:38.998242",
+      "updated_at": "2025-06-25 23:26:15.896008"
     },
     {
-      "id": 8,
+      "id": 7,
       "name": "email_data_converter",
       "description": "Convert email data between different formats and ensure proper object structure for workflow steps",
       "parameters_schema": {
@@ -577,11 +695,11 @@
       "class_name": "EmailDataConverterTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-24 03:36:35.260702",
-      "updated_at": "2025-06-24 03:36:35.260702"
+      "created_at": "2025-06-25 22:52:39.004523",
+      "updated_at": "2025-06-25 22:52:39.004524"
     },
     {
-      "id": 9,
+      "id": 8,
       "name": "file_vault",
       "description": "Secure file vault for storing and retrieving temporary files. Files are stored in a controlled environment with security restrictions.",
       "parameters_schema": {
@@ -648,71 +766,95 @@
       "class_name": "FileVaultTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-24 03:36:35.266703",
-      "updated_at": "2025-06-24 03:36:35.266704"
+      "created_at": "2025-06-25 22:52:39.010266",
+      "updated_at": "2025-06-25 22:52:39.010267"
     },
     {
-      "id": 10,
-      "name": "attachment_downloader",
-      "description": "Download email attachments to temporary locations. Works with email data from email_checker tool and attachment info from email_parser tool. Supports base64 decoding for encoded attachments.",
+      "id": 9,
+      "name": "email_sender",
+      "description": "Send emails using SMTP with SSL/TLS support. Requires SMTP configuration in agent tool_configs (smtp_host, smtp_username, smtp_password).",
       "parameters_schema": {
         "type": "object",
         "properties": {
-          "email_data": {
-            "type": "object",
-            "description": "Email data object from email_checker tool"
-          },
-          "file_type": {
+          "to": {
             "type": "string",
-            "description": "Specific file type to extract (e.g., 'json', 'pdf', 'txt')",
+            "description": "Recipient email address"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject line"
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body content"
+          },
+          "cc": {
+            "type": "string",
+            "description": "CC recipients (comma-separated email addresses)",
             "default": ""
           },
-          "attachment_filenames": {
+          "bcc": {
+            "type": "string",
+            "description": "BCC recipients (comma-separated email addresses)",
+            "default": ""
+          },
+          "html": {
+            "type": "boolean",
+            "description": "Whether the body content is HTML",
+            "default": false
+          },
+          "priority": {
+            "type": "string",
+            "description": "Email priority: low, normal, high",
+            "default": "normal"
+          },
+          "attachments": {
             "type": "array",
+            "description": "List of attachments to include in the email",
             "items": {
-              "type": "string"
+              "type": "object",
+              "properties": {
+                "filename": {
+                  "type": "string",
+                  "description": "Name of the attachment file"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Content of the attachment (text or base64 encoded)"
+                },
+                "content_type": {
+                  "type": "string",
+                  "description": "MIME type of the attachment (e.g., text/plain, application/json)",
+                  "default": "text/plain"
+                },
+                "encoding": {
+                  "type": "string",
+                  "description": "Encoding of the content (e.g., utf-8, base64)",
+                  "default": "utf-8"
+                }
+              },
+              "required": [
+                "filename",
+                "content"
+              ]
             },
-            "description": "List of attachment filenames to download (empty for all)",
             "default": []
-          },
-          "download_path": {
-            "type": "string",
-            "description": "Custom download path (optional, uses temp directory if not specified)",
-            "default": ""
-          },
-          "create_subdirectories": {
-            "type": "boolean",
-            "description": "Create subdirectories for each email",
-            "default": true
-          },
-          "sanitize_filenames": {
-            "type": "boolean",
-            "description": "Sanitize filenames for filesystem safety",
-            "default": true
-          },
-          "max_file_size": {
-            "type": "integer",
-            "description": "Maximum file size in bytes (0 for no limit)",
-            "default": 0
-          },
-          "decode_base64": {
-            "type": "boolean",
-            "description": "Attempt to decode base64-encoded content",
-            "default": true
           }
         },
         "required": [
-          "email_data"
+          "to",
+          "subject",
+          "body"
         ]
       },
-      "class_name": "AttachmentDownloaderTool",
+      "class_name": "EmailSenderTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-24 03:36:35.274546",
-      "updated_at": "2025-06-24 03:36:35.274547"
+      "created_at": "2025-06-25 22:52:39.015923",
+      "updated_at": "2025-06-25 22:52:39.015923"
     },
     {
-      "id": 11,
+      "id": 10,
       "name": "email_attachment_downloader",
       "description": "Download email attachments to temporary locations. Works with email data from email_checker tool and attachment info from email_parser tool. Supports base64 decoding for encoded attachments.",
       "parameters_schema": {
@@ -769,6 +911,11 @@
             "type": "string",
             "description": "Prefix for files stored in vault (e.g., 'email_attachments_')",
             "default": "email_attachment_"
+          },
+          "vault_id": {
+            "type": "string",
+            "description": "Vault ID for storing files in the secure file vault",
+            "default": null
           }
         },
         "required": [
@@ -778,14 +925,74 @@
       "class_name": "EmailAttachmentDownloaderTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-24 03:59:07.490205",
-      "updated_at": "2025-06-24 06:32:30.090647"
+      "created_at": "2025-06-25 22:52:39.021427",
+      "updated_at": "2025-06-25 22:52:39.021428"
+    },
+    {
+      "id": 11,
+      "name": "attachment_downloader",
+      "description": "Download email attachments to temporary locations. Works with email data from email_checker tool and attachment info from email_parser tool. Supports base64 decoding for encoded attachments.",
+      "parameters_schema": {
+        "type": "object",
+        "properties": {
+          "email_data": {
+            "type": "object",
+            "description": "Email data object from email_checker tool"
+          },
+          "file_type": {
+            "type": "string",
+            "description": "Specific file type to extract (e.g., 'json', 'pdf', 'txt')",
+            "default": ""
+          },
+          "attachment_filenames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of attachment filenames to download (empty for all)",
+            "default": []
+          },
+          "download_path": {
+            "type": "string",
+            "description": "Custom download path (optional, uses temp directory if not specified)",
+            "default": ""
+          },
+          "create_subdirectories": {
+            "type": "boolean",
+            "description": "Create subdirectories for each email",
+            "default": true
+          },
+          "sanitize_filenames": {
+            "type": "boolean",
+            "description": "Sanitize filenames for filesystem safety",
+            "default": true
+          },
+          "max_file_size": {
+            "type": "integer",
+            "description": "Maximum file size in bytes (0 for no limit)",
+            "default": 0
+          },
+          "decode_base64": {
+            "type": "boolean",
+            "description": "Attempt to decode base64-encoded content",
+            "default": true
+          }
+        },
+        "required": [
+          "email_data"
+        ]
+      },
+      "class_name": "AttachmentDownloaderTool",
+      "enabled": true,
+      "configuration": {},
+      "created_at": "2025-06-25 23:15:47.886274",
+      "updated_at": "2025-06-25 23:15:47.886275"
     }
   ],
   "scheduled_tasks": [],
   "config": {
     "llm_config": {
-      "default_provider": "ollama",
+      "default_provider": "openai",
       "default_model": "granite3.2:2b",
       "fallback_enabled": true,
       "fallback_order": [
@@ -807,6 +1014,24 @@
             "embeddings",
             "model_management"
           ]
+        },
+        "openai": {
+          "enabled": true,
+          "api_key": "<API_KEY>",
+          "base_url": "https://api.openai.com/v1",
+          "organization": null,
+          "timeout": 300,
+          "default_model": "gpt-3.5-turbo",
+          "supported_features": [
+            "streaming",
+            "chat",
+            "tools",
+            "embeddings",
+            "vision",
+            "audio"
+          ],
+          "aws_access_key_id": "",
+          "aws_secret_access_key": ""
         }
       }
     },
