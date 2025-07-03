@@ -2,25 +2,25 @@
 
 Welcome to the Open Agentic Framework (OAF) documentation. This guide is organized to help you quickly find the information you need, whether you're just getting started or looking for advanced configuration details.
 
-## 📚 Documentation Structure
+## Documentation Structure
 
-### 🚀 Getting Started
+### Getting Started
 Essential guides to get you up and running with OAF:
 
 - **[Quick Start Guide](getting-started/QUICK_START.md)** - Complete setup and first workflow
 - **[AWS Bedrock Setup](getting-started/AWS_BEDROCK_SETUP.md)** - Configure AWS Bedrock integration
 - **[Backup & Restore](getting-started/BACKUP_RESTORE.md)** - Data backup and recovery procedures
 
-### 🏗️ Architecture
+### Architecture
 Deep dive into the framework's design and concepts:
 
 - **[Email Tools Architecture](architecture/EMAIL_TOOLS_ARCHITECTURE.md)** - Email processing system design
 - **[Workflow Output Filtering](architecture/WORKFLOW_OUTPUT_FILTERING.md)** - Data processing and filtering concepts
 
-### 🛠️ Tools
+### Tools
 Comprehensive guides for all available tools and integrations:
 
-#### 📧 Email Tools
+#### Communication Tools
 - **[Email Tools Setup](tools/EMAIL_TOOLS_SETUP.md)** - Email parsing, sending, and management
 - **[Email Parser Tool](tools/EMAIL_TOOLS_SETUP.md#email-parser-tool)** - Parse and extract email data
 - **[Email Sender Tool](tools/EMAIL_TOOLS_SETUP.md#email-sender-tool)** - Send emails with attachments
@@ -28,42 +28,42 @@ Comprehensive guides for all available tools and integrations:
 - **[Email Attachment Downloader](tools/EMAIL_TOOLS_SETUP.md#email-attachment-downloader-tool)** - Download email attachments
 - **[Email Data Converter](tools/EMAIL_TOOLS_SETUP.md#email-data-converter-tool)** - Convert email data formats
 
-#### 🌐 Web & API Tools
+#### Web & API Tools
 - **[HTTP Client Tool](tools/HTTP_CLIENT_TOOL.md)** - Make HTTP requests to external APIs
 - **[Website Monitor Tool](tools/WEBSITE_MONITOR_TOOL.md)** - Monitor website availability
 
-#### 📊 Data Processing Tools
+#### Data Processing Tools
 - **[File Vault Tool](tools/FILE_VAULT_TOOL.md)** - Secure file storage and retrieval
 - **[Data Extractor Tool](tools/DATA_EXTRACTOR_TOOL.md)** - Extract structured data from various sources
 - **[JSON Validator Tool](tools/JSON_VALIDATOR_TOOL.md)** - Validate and format JSON data
 
-#### 🔧 Utility Tools
+#### Utility Tools
 - **[Rate Limiter Utility](tools/RATE_LIMITER_UTILITY.md)** - Manage API rate limits and throttling
 
-#### 📚 Examples & Guides
+#### Examples & Guides
 - **[Agent Tooling Examples](tools/AGENT_TOOLING_EXAMPLES.md)** - Practical examples and use cases
 
-### 🔄 Workflows
+### Workflows
 Workflow-specific documentation and examples:
 
 - **[Email Reply Workflow](workflows/EMAIL_REPLY_WORKFLOW.md)** - Automated email response system
 
-### 🚀 Deployment
+### Deployment
 Production deployment and operational guides:
 
 - **[Production Deployment](deployment/PRODUCTION.md)** - Production setup and best practices
 
-### 📖 Examples
+### Examples
 Real-world examples and sample implementations:
 
 *Coming soon - Sample workflows, configurations, and use cases*
 
-### 📋 Reference
+### Reference
 API references, configuration options, and technical details:
 
 *Coming soon - API documentation, configuration reference, troubleshooting*
 
-## 🎯 Quick Navigation
+## Quick Navigation
 
 ### For New Users
 1. Start with the **[Quick Start Guide](getting-started/QUICK_START.md)**
@@ -80,35 +80,9 @@ API references, configuration options, and technical details:
 2. Follow **[Production Deployment](deployment/PRODUCTION.md)** guidelines
 3. Configure **[AWS Bedrock](getting-started/AWS_BEDROCK_SETUP.md)** if using AWS services
 
-## 🔧 Tool Categories
 
-The framework includes several categories of tools that can be extended:
 
-### 📧 Communication Tools
-- **Email Tools**: Parsing, sending, and management
-  - Email Parser, Sender, Checker, Attachment Downloader, Data Converter
-- *Future: Slack, Teams, Discord integrations*
-
-### 🌐 Web & API Tools
-- **HTTP Client**: Web requests and API calls
-- **Website Monitor**: URL monitoring and alerting
-- *Future: WebSocket client, GraphQL client*
-
-### 📊 Data Processing Tools
-- **File Vault**: Secure file storage and retrieval
-- **Data Extractor**: Information extraction from various sources
-- **JSON Validator**: Data validation and formatting
-- *Future: Database connectors, API integrations, ETL tools*
-
-### 🔧 Utility Tools
-- **Rate Limiter**: Request throttling and API rate management
-- *Future: Image processing, document conversion, data validation*
-
-### 📈 Monitoring Tools
-- **Website Monitor**: URL monitoring and alerting
-- *Future: System monitoring, log analysis, performance tracking*
-
-## 📝 Contributing to Documentation
+## Contributing to Documentation
 
 When adding new tools or features:
 
@@ -118,7 +92,7 @@ When adding new tools or features:
 4. **Architecture**: Update architecture docs for significant changes
 5. **Update this index**: Add new sections and links as needed
 
-## 🆘 Getting Help
+## Getting Help
 
 - **Issues**: Report bugs and request features on GitHub
 - **Discussions**: Join community discussions for questions and ideas
