@@ -57,7 +57,7 @@
     {
       "id": 2,
       "name": "email_test_workflow_no_agent",
-      "description": "Test email checker with tool-level configuration",
+      "description": "Test email checker with tool-level configuration and automatic reply",
       "steps": [
         {
           "type": "tool",
@@ -101,6 +101,22 @@
             "action": "convert_to_object"
           },
           "context_key": "converted_email_data",
+          "use_previous_output": false,
+          "preserve_objects": false
+        },
+        {
+          "type": "tool",
+          "name": "email_parser",
+          "tool": null,
+          "task": null,
+          "parameters": {
+            "email_data": "{{converted_email_data.result}}",
+            "parse_headers": true,
+            "parse_body": false,
+            "parse_attachments": false,
+            "extract_emails": true
+          },
+          "context_key": "parsed_email_info",
           "use_previous_output": false,
           "preserve_objects": false
         },
@@ -170,6 +186,29 @@
           "task": "Produce a Legal Notices document for the information {{sbom_license_information}}",
           "context_key": "legal_notices",
           "use_previous_output": false
+        },
+        {
+          "type": "tool",
+          "name": "email_sender",
+          "tool": null,
+          "task": null,
+          "parameters": {
+            "to": "{{parsed_email_info.parsed_email.recipients.from[0].email}}",
+            "subject": "Re: {{parsed_email_info.parsed_email.headers.subject}} - SBOM Analysis Complete",
+            "body": "Your SBOM analysis has been completed successfully.\n\nPlease find the legal notices and license assessment attached.\n\nWorkflow Results:\n{{legal_notices}}\n\nThis analysis was performed automatically by the Agentic AI Framework.\n\nBest regards,\nSBOM Analysis System",
+            "html": false,
+            "attachments": [
+              {
+                "filename": "legal_notices.txt",
+                "content": "{{legal_notices}}",
+                "content_type": "text/plain",
+                "encoding": "utf-8"
+              }
+            ]
+          },
+          "context_key": "email_sent_confirmation",
+          "use_previous_output": false,
+          "preserve_objects": false
         }
       ],
       "enabled": true,
@@ -849,7 +888,15 @@
       },
       "class_name": "EmailSenderTool",
       "enabled": true,
-      "configuration": {},
+      "configuration": {
+        "smtp_host": "smtp.gmail.com",
+        "smtp_port": 587,
+        "smtp_username": "getanospo@gmail.com",
+        "smtp_password": "fhxqtokpxiwmieoj",
+        "smtp_use_tls": true,
+        "smtp_use_ssl": false,
+        "from_email": "getanospo@gmail.com"
+      },
       "created_at": "2025-06-25 22:52:39.015923",
       "updated_at": "2025-06-25 22:52:39.015923"
     },
