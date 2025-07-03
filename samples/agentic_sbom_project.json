@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "timestamp": "2025-07-03T05:35:23.475531",
+    "timestamp": "2025-07-03T06:23:25.786419",
     "version": "1.0",
-    "backup_name": "fully_functional_config",
+    "backup_name": "email_sbom_analysis",
     "options": {
       "export_path": "backups",
       "include_memory": false,
@@ -10,12 +10,12 @@
       "include_tools": true,
       "include_scheduled_tasks": true,
       "create_zip": true,
-      "backup_name": "fully_functional_config"
+      "backup_name": "email_sbom_analysis"
     }
   },
   "agents": [
     {
-      "id": 3,
+      "id": 1,
       "name": "purl_batch_processor",
       "role": "PURL Batch Processor",
       "goals": "Execute the purl_license_and_notices workflow and consolidate the results into a single output.",
@@ -25,11 +25,11 @@
       ],
       "ollama_model": "gpt-3.5-turbo",
       "enabled": true,
-      "created_at": "2025-06-25 23:15:47.833547",
-      "updated_at": "2025-06-25 23:22:59.600922"
+      "created_at": "2025-07-03 05:58:42.699299",
+      "updated_at": "2025-07-03 05:58:42.699307"
     },
     {
-      "id": 4,
+      "id": 2,
       "name": "purl_parser",
       "role": "PURL Parser with Correct ClearlyDefined URL Building",
       "goals": "Parse Package URLs (PURLs) and build  ClearlyDefined API URLs",
@@ -37,11 +37,11 @@
       "tools": [],
       "ollama_model": "openai:gpt-3.5-turbo",
       "enabled": true,
-      "created_at": "2025-06-25 23:15:47.847037",
-      "updated_at": "2025-06-25 23:15:47.847040"
+      "created_at": "2025-07-03 05:58:42.715262",
+      "updated_at": "2025-07-03 05:58:42.715265"
     },
     {
-      "id": 5,
+      "id": 3,
       "name": "OSS_Legal_Notices_Generator",
       "role": "OSS Legal Notices Generator",
       "goals": "Produce a Text File Legal Notices file, listing all components, licenses, and copyright information for a project.",
@@ -49,13 +49,13 @@
       "tools": [],
       "ollama_model": "gpt-3.5-turbo",
       "enabled": true,
-      "created_at": "2025-06-25 23:35:50.134889",
-      "updated_at": "2025-06-25 23:35:50.134917"
+      "created_at": "2025-07-03 05:58:42.725007",
+      "updated_at": "2025-07-03 05:58:42.725010"
     }
   ],
   "workflows": [
     {
-      "id": 2,
+      "id": 1,
       "name": "email_test_workflow_no_agent",
       "description": "Test email checker with tool-level configuration and automatic reply",
       "steps": [
@@ -217,11 +217,11 @@
       "output_spec": {
         "extractions": []
       },
-      "created_at": "2025-06-25 23:15:47.864781",
-      "updated_at": "2025-06-25 23:40:29.449448"
+      "created_at": "2025-07-03 05:58:42.732794",
+      "updated_at": "2025-07-03 06:12:13.052885"
     },
     {
-      "id": 3,
+      "id": 2,
       "name": "purl_license_assessment",
       "description": "Complete PURL-based license and security risk assessment workflow with data extraction",
       "steps": [
@@ -321,8 +321,8 @@
           }
         ]
       },
-      "created_at": "2025-06-25 23:15:47.873048",
-      "updated_at": "2025-06-25 23:18:34.541426"
+      "created_at": "2025-07-03 05:58:42.740911",
+      "updated_at": "2025-07-03 05:58:42.740912"
     }
   ],
   "tools": [
@@ -378,8 +378,8 @@
       "class_name": "JsonValidatorTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-25 22:52:38.963243",
-      "updated_at": "2025-06-25 22:52:38.963247"
+      "created_at": "2025-07-03 05:57:19.067536",
+      "updated_at": "2025-07-03 05:57:19.067538"
     },
     {
       "id": 2,
@@ -435,8 +435,8 @@
       "class_name": "HttpClientTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-25 22:52:38.972199",
-      "updated_at": "2025-06-25 22:52:38.972201"
+      "created_at": "2025-07-03 05:57:19.088610",
+      "updated_at": "2025-07-03 05:57:19.088614"
     },
     {
       "id": 3,
@@ -532,8 +532,8 @@
       "class_name": "DataExtractorTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-25 22:52:38.978507",
-      "updated_at": "2025-06-25 22:52:38.978509"
+      "created_at": "2025-07-03 05:57:19.115690",
+      "updated_at": "2025-07-03 05:57:19.115696"
     },
     {
       "id": 4,
@@ -569,8 +569,8 @@
       "class_name": "WebsiteMonitorTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-25 22:52:38.984972",
-      "updated_at": "2025-06-25 22:52:38.984974"
+      "created_at": "2025-07-03 05:57:19.133196",
+      "updated_at": "2025-07-03 05:57:19.133199"
     },
     {
       "id": 5,
@@ -616,8 +616,8 @@
       "class_name": "EmailParserTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-25 22:52:38.991353",
-      "updated_at": "2025-06-25 22:52:38.991354"
+      "created_at": "2025-07-03 05:57:19.143429",
+      "updated_at": "2025-07-03 05:57:19.143433"
     },
     {
       "id": 6,
@@ -689,8 +689,8 @@
         "imap_password": "<EMAIL_PASSWORD>",
         "imap_use_ssl": true
       },
-      "created_at": "2025-06-25 22:52:38.998242",
-      "updated_at": "2025-06-25 23:26:15.896008"
+      "created_at": "2025-07-03 05:57:19.163296",
+      "updated_at": "2025-07-03 06:00:35.618885"
     },
     {
       "id": 7,
@@ -731,8 +731,8 @@
       "class_name": "EmailDataConverterTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-25 22:52:39.004523",
-      "updated_at": "2025-06-25 22:52:39.004524"
+      "created_at": "2025-07-03 05:57:19.174476",
+      "updated_at": "2025-07-03 05:57:19.174479"
     },
     {
       "id": 8,
@@ -802,8 +802,8 @@
       "class_name": "FileVaultTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-25 22:52:39.010266",
-      "updated_at": "2025-06-25 22:52:39.010267"
+      "created_at": "2025-07-03 05:57:19.186687",
+      "updated_at": "2025-07-03 05:57:19.186689"
     },
     {
       "id": 9,
@@ -894,8 +894,8 @@
         "smtp_use_ssl": false,
         "from_email": "your-email@gmail.com"
       },
-      "created_at": "2025-06-25 22:52:39.015923",
-      "updated_at": "2025-06-25 22:52:39.015923"
+      "created_at": "2025-07-03 05:57:19.195743",
+      "updated_at": "2025-07-03 06:00:45.763313"
     },
     {
       "id": 10,
@@ -969,8 +969,8 @@
       "class_name": "EmailAttachmentDownloaderTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-25 22:52:39.021427",
-      "updated_at": "2025-06-25 22:52:39.021428"
+      "created_at": "2025-07-03 05:57:19.203987",
+      "updated_at": "2025-07-03 05:57:19.203989"
     },
     {
       "id": 11,
@@ -1029,8 +1029,8 @@
       "class_name": "AttachmentDownloaderTool",
       "enabled": true,
       "configuration": {},
-      "created_at": "2025-06-25 23:15:47.886274",
-      "updated_at": "2025-06-25 23:15:47.886275"
+      "created_at": "2025-07-03 05:58:42.754174",
+      "updated_at": "2025-07-03 05:58:42.754176"
     }
   ],
   "scheduled_tasks": [],
@@ -1061,7 +1061,7 @@
         },
         "openai": {
           "enabled": true,
-          "api_key": "<API_KEY>",
+          "api_key": "<OPENAI_API_KEY>",
           "base_url": "https://api.openai.com/v1",
           "organization": null,
           "timeout": 300,
