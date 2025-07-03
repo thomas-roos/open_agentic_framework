@@ -20,8 +20,27 @@ Deep dive into the framework's design and concepts:
 ### 🛠️ Tools
 Comprehensive guides for all available tools and integrations:
 
+#### 📧 Email Tools
 - **[Email Tools Setup](tools/EMAIL_TOOLS_SETUP.md)** - Email parsing, sending, and management
+- **[Email Parser Tool](tools/EMAIL_TOOLS_SETUP.md#email-parser-tool)** - Parse and extract email data
+- **[Email Sender Tool](tools/EMAIL_TOOLS_SETUP.md#email-sender-tool)** - Send emails with attachments
+- **[Email Checker Tool](tools/EMAIL_TOOLS_SETUP.md#email-checker-tool)** - Validate email addresses
+- **[Email Attachment Downloader](tools/EMAIL_TOOLS_SETUP.md#email-attachment-downloader-tool)** - Download email attachments
+- **[Email Data Converter](tools/EMAIL_TOOLS_SETUP.md#email-data-converter-tool)** - Convert email data formats
+
+#### 🌐 Web & API Tools
+- **[HTTP Client Tool](tools/HTTP_CLIENT_TOOL.md)** - Make HTTP requests to external APIs
+- **[Website Monitor Tool](tools/WEBSITE_MONITOR_TOOL.md)** - Monitor website availability
+
+#### 📊 Data Processing Tools
 - **[File Vault Tool](tools/FILE_VAULT_TOOL.md)** - Secure file storage and retrieval
+- **[Data Extractor Tool](tools/DATA_EXTRACTOR_TOOL.md)** - Extract structured data from various sources
+- **[JSON Validator Tool](tools/JSON_VALIDATOR_TOOL.md)** - Validate and format JSON data
+
+#### 🔧 Utility Tools
+- **[Rate Limiter Utility](tools/RATE_LIMITER_UTILITY.md)** - Manage API rate limits and throttling
+
+#### 📚 Examples & Guides
 - **[Agent Tooling Examples](tools/AGENT_TOOLING_EXAMPLES.md)** - Practical examples and use cases
 
 ### 🔄 Workflows
@@ -65,24 +84,29 @@ API references, configuration options, and technical details:
 
 The framework includes several categories of tools that can be extended:
 
-### Communication Tools
+### 📧 Communication Tools
 - **Email Tools**: Parsing, sending, and management
+  - Email Parser, Sender, Checker, Attachment Downloader, Data Converter
 - *Future: Slack, Teams, Discord integrations*
 
-### Data Processing Tools
+### 🌐 Web & API Tools
+- **HTTP Client**: Web requests and API calls
+- **Website Monitor**: URL monitoring and alerting
+- *Future: WebSocket client, GraphQL client*
+
+### 📊 Data Processing Tools
 - **File Vault**: Secure file storage and retrieval
 - **Data Extractor**: Information extraction from various sources
-- *Future: Database connectors, API integrations*
+- **JSON Validator**: Data validation and formatting
+- *Future: Database connectors, API integrations, ETL tools*
 
-### Monitoring Tools
+### 🔧 Utility Tools
+- **Rate Limiter**: Request throttling and API rate management
+- *Future: Image processing, document conversion, data validation*
+
+### 📈 Monitoring Tools
 - **Website Monitor**: URL monitoring and alerting
-- *Future: System monitoring, log analysis*
-
-### Utility Tools
-- **HTTP Client**: Web requests and API calls
-- **Rate Limiter**: Request throttling
-- **JSON Validator**: Data validation
-- *Future: Image processing, document conversion*
+- *Future: System monitoring, log analysis, performance tracking*
 
 ## 📝 Contributing to Documentation
 
