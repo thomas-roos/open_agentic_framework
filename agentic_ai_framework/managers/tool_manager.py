@@ -27,6 +27,12 @@ class ToolManager:
         self.tools_directory = tools_directory
         self.config = config
         self.loaded_tools = {}
+        
+        # List of deprecated tool names that should not be registered
+        self.deprecated_tools = {
+            "attachment_downloader"  # Replaced by email_attachment_downloader
+        }
+        
         logger.info(f"Initialized tool manager with directory: {tools_directory}")
     
     def discover_and_register_tools(self):
@@ -107,6 +113,11 @@ class ToolManager:
             tool_instance: Instance of the tool
             class_name: Name of the tool class
         """
+        # Skip deprecated tools
+        if tool_instance.name in self.deprecated_tools:
+            logger.warning(f"Skipping deprecated tool: {tool_instance.name} (replaced by newer version)")
+            return
+        
         # Set dependencies if the tool supports it
         if hasattr(tool_instance, 'set_dependencies'):
             tool_instance.set_dependencies(self.memory_manager, self.config)
@@ -181,9 +192,12 @@ class ToolManager:
             logger.error(f"Error executing tool {tool_name}: {e}")
             raise
     
-    def _get_tool_config(self, tool_name: str, agent_name: Optional[str]) -> Dict[str, Any]:
+    def _get_tool_config(self, tool_name: str, agent_name: Optional[str] = None) -> Dict[str, Any]:
         """
-        Get tool configuration for a specific agent
+        Get tool configuration from multiple sources in order of precedence:
+        1. Agent-specific configuration (highest priority)
+        2. Tool-level configuration (stored in database)
+        3. Tool instance configuration (set via set_config)
         
         Args:
             tool_name: Name of the tool
@@ -194,11 +208,27 @@ class ToolManager:
         """
         config = {}
         
+        # 1. Get tool-level configuration from database
+        tool_config = self.memory_manager.get_tool_configuration(tool_name)
+        if tool_config:
+            config.update(tool_config)
+            logger.debug(f"Retrieved tool-level config for {tool_name}")
+        
+        # 2. Get agent-specific configuration (overrides tool-level)
         if agent_name:
             agent = self.memory_manager.get_agent(agent_name)
             if agent and agent.get("tool_configs"):
-                config = agent["tool_configs"].get(tool_name, {})
-                logger.debug(f"Retrieved config for tool {tool_name} from agent {agent_name}")
+                agent_tool_config = agent["tool_configs"].get(tool_name, {})
+                config.update(agent_tool_config)
+                logger.debug(f"Retrieved agent-specific config for tool {tool_name} from agent {agent_name}")
+        
+        # 3. Get tool instance configuration (if tool instance has been configured)
+        tool_instance = self.loaded_tools.get(tool_name)
+        if tool_instance and hasattr(tool_instance, 'get_config'):
+            instance_config = tool_instance.get_config()
+            if instance_config:
+                config.update(instance_config)
+                logger.debug(f"Retrieved instance config for tool {tool_name}")
         
         return config
     
@@ -303,14 +333,9 @@ class ToolManager:
         logger.info("Tools reloaded successfully")
     
     def get_tools_status(self) -> Dict[str, Any]:
-        """
-        Get status of all tools
-        
-        Returns:
-            Dictionary with tool status information
-        """
+        """Get status of all tools"""
         return {
             "total_tools": len(self.loaded_tools),
             "loaded_tools": list(self.loaded_tools.keys()),
-            "tools_directory": self.tools_directory
+            "deprecated_tools": list(self.deprecated_tools)
         }

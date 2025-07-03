@@ -76,17 +76,19 @@ class BaseTool(ABC):
         """
         self.config = config
     
-    def get_config(self, key: str, default: Any = None) -> Any:
+    def get_config(self, key: str = None, default: Any = None) -> Any:
         """
-        Get a configuration value
+        Get a configuration value, or the full config dict if no key is provided.
         
         Args:
-            key: Configuration key to retrieve
+            key: Configuration key to retrieve (optional)
             default: Default value if key not found
-            
+        
         Returns:
-            Configuration value or default
+            Configuration value, or the full config dict if key is None
         """
+        if key is None:
+            return self.config
         return self.config.get(key, default)
     
     def validate_config(self, required_keys: list) -> bool:

@@ -379,6 +379,7 @@ Extract multiple specific fields with different extraction types:
 - **`regex`** - Extract using regular expressions
 - **`literal`** - Return a literal value
 - **`find`** - Find data in arrays using criteria
+- **`join_field`** - Extract array and join field values with separator
 
 ### Format Options
 

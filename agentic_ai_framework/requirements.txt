@@ -16,6 +16,7 @@ requests==2.32.4
 # Data validation and serialization
 pydantic==2.5.1
 pydantic-settings==2.1.0
+jsonschema==4.21.1
 
 # File upload and form handling
 python-multipart==0.0.18
@@ -26,6 +27,10 @@ passlib[bcrypt]==1.7.4
 
 # Email functionality
 aiosmtplib==3.0.1
+# Note: POP3 and IMAP functionality uses standard library modules:
+# - poplib (for POP3)
+# - imaplib (for IMAP)
+# These are built into Python and don't require external packages
 
 # Background task scheduling
 apscheduler==3.10.4

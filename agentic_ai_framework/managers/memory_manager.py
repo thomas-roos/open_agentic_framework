@@ -42,6 +42,7 @@ class Tool(Base):
     parameters_schema = Column(JSON, nullable=False)
     class_name = Column(String, nullable=False)
     enabled = Column(Boolean, default=True)
+    configuration = Column(JSON, default={})  # NEW: Tool-level configuration
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -184,6 +185,31 @@ class MemoryManager:
                 }
             return None
     
+    def get_agent_by_id(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        """Get agent by ID"""
+        try:
+            agent_id_int = int(agent_id)
+        except ValueError:
+            return None
+            
+        with self.get_session() as session:
+            agent = session.query(Agent).filter(Agent.id == agent_id_int).first()
+            if agent:
+                return {
+                    "id": agent.id,
+                    "name": agent.name,
+                    "role": agent.role,
+                    "goals": agent.goals,
+                    "backstory": agent.backstory,
+                    "tools": agent.tools,
+                    "ollama_model": agent.ollama_model,
+                    "enabled": agent.enabled,
+                    "tool_configs": agent.tool_configs,
+                    "created_at": agent.created_at,
+                    "updated_at": agent.updated_at
+                }
+            return None
+    
     def get_all_agents(self) -> List[Dict[str, Any]]:
         """Get all agents"""
         with self.get_session() as session:
@@ -239,7 +265,8 @@ class MemoryManager:
         description: str, 
         parameters_schema: Dict[str, Any],
         class_name: str,
-        enabled: bool = True
+        enabled: bool = True,
+        configuration: Optional[Dict[str, Any]] = None
     ) -> int:
         """Register a new tool"""
         with self.get_session() as session:
@@ -254,7 +281,8 @@ class MemoryManager:
                 description=description,
                 parameters_schema=parameters_schema,
                 class_name=class_name,
-                enabled=enabled
+                enabled=enabled,
+                configuration=configuration or {}
             )
             session.add(tool)
             session.commit()
@@ -274,6 +302,7 @@ class MemoryManager:
                     "parameters_schema": tool.parameters_schema,
                     "class_name": tool.class_name,
                     "enabled": tool.enabled,
+                    "configuration": tool.configuration,
                     "created_at": tool.created_at,
                     "updated_at": tool.updated_at
                 }
@@ -291,6 +320,7 @@ class MemoryManager:
                     "parameters_schema": tool.parameters_schema,
                     "class_name": tool.class_name,
                     "enabled": tool.enabled,
+                    "configuration": tool.configuration,
                     "created_at": tool.created_at,
                     "updated_at": tool.updated_at
                 }
@@ -321,6 +351,26 @@ class MemoryManager:
             session.delete(tool)
             session.commit()
             logger.info(f"Deleted tool: {name}")
+    
+    def set_tool_configuration(self, tool_name: str, configuration: Dict[str, Any]):
+        """Set configuration for a specific tool"""
+        with self.get_session() as session:
+            tool = session.query(Tool).filter(Tool.name == tool_name).first()
+            if not tool:
+                raise ValueError(f"Tool {tool_name} not found")
+            
+            tool.configuration = configuration
+            tool.updated_at = datetime.utcnow()
+            session.commit()
+            logger.info(f"Updated configuration for tool: {tool_name}")
+    
+    def get_tool_configuration(self, tool_name: str) -> Optional[Dict[str, Any]]:
+        """Get configuration for a specific tool"""
+        with self.get_session() as session:
+            tool = session.query(Tool).filter(Tool.name == tool_name).first()
+            if tool:
+                return tool.configuration
+            return None
     
     # Workflow Management Methods (unchanged)
     def register_workflow(

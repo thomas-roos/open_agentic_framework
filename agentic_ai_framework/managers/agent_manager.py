@@ -26,7 +26,7 @@ class AgentManager:
         self, 
         agent_name: str, 
         task: str, 
-        context: Dict[str, Any] = None
+        context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Execute agent with filtered context to prevent data overload"""
         context = context or {}
@@ -710,20 +710,63 @@ Use the appropriate tool for: "{task}" """
         return tool_calls
     
     def _parse_parameters_simple(self, params_str: str) -> Dict[str, Any]:
-        """Simplified parameter parsing"""
+        """Simplified parameter parsing with JSON support and parameter mapping"""
         parameters = {}
         
         if not params_str.strip():
             return parameters
         
-        # Simple split on comma
-        parts = [p.strip() for p in params_str.split(',')]
+        # Simple split on comma, but be careful with JSON values
+        parts = []
+        current_part = ""
+        brace_count = 0
+        quote_char = None
+        
+        for char in params_str:
+            if char == '"' or char == "'":
+                if quote_char is None:
+                    quote_char = char
+                elif quote_char == char:
+                    quote_char = None
+            elif char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+            elif char == ',' and brace_count == 0 and quote_char is None:
+                parts.append(current_part.strip())
+                current_part = ""
+                continue
+            
+            current_part += char
+        
+        if current_part.strip():
+            parts.append(current_part.strip())
         
         for part in parts:
             if '=' in part:
                 key, value = part.split('=', 1)
                 key = key.strip()
                 value = value.strip().strip('"\'')
+                
+                # Handle JSON values
+                if value.startswith('{') and value.endswith('}'):
+                    try:
+                        import json
+                        parameters[key] = json.loads(value)
+                        continue
+                    except json.JSONDecodeError:
+                        # If JSON parsing fails, keep as string
+                        pass
+                
+                # Handle array values
+                if value.startswith('[') and value.endswith(']'):
+                    try:
+                        import json
+                        parameters[key] = json.loads(value)
+                        continue
+                    except json.JSONDecodeError:
+                        # If JSON parsing fails, keep as string
+                        pass
                 
                 # Simple type conversion
                 if value.isdigit():
@@ -732,6 +775,10 @@ Use the appropriate tool for: "{task}" """
                     parameters[key] = value.lower() == 'true'
                 else:
                     parameters[key] = value
+        
+        # Fix common parameter name issues for http_client
+        if 'body' in parameters and 'data' not in parameters:
+            parameters['data'] = parameters.pop('body')
         
         return parameters
     

@@ -43,6 +43,7 @@ class AgentInfo(BaseModel):
     tools: List[str]
     ollama_model: str
     enabled: bool
+    tool_configs: Optional[Dict[str, Dict[str, Any]]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -119,6 +120,9 @@ class WorkflowStep(BaseModel):
     """Model for a single workflow step"""
     type: str = Field(..., description="Step type: 'agent' or 'tool'")
     name: str = Field(..., description="Agent or tool name")
+    tool: Optional[str] = Field(
+        default=None, description="Tool name for tool steps"
+    )
     task: Optional[str] = Field(
         default=None, description="Task description for agent steps"
     )
@@ -130,6 +134,9 @@ class WorkflowStep(BaseModel):
     )
     use_previous_output: Optional[bool] = Field(
         default=False, description="Whether to use previous step output as input"
+    )
+    preserve_objects: Optional[bool] = Field(
+        default=False, description="Whether to preserve objects when resolving template variables"
     )
 
 class WorkflowDefinition(BaseModel):
@@ -171,6 +178,9 @@ class WorkflowExecutionRequest(BaseModel):
     """Model for workflow execution request"""
     context: Optional[Dict[str, Any]] = Field(
         default={}, description="Initial workflow context"
+    )
+    agent_id: Optional[str] = Field(
+        default=None, description="Agent ID for tool configuration context"
     )
 
 class WorkflowExecutionResponse(BaseModel):

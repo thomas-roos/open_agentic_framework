@@ -6,6 +6,9 @@ const Tools = () => {
     const [tools, setTools] = useState([]);
     const [loading, setLoading] = useState(true);
     const [executing, setExecuting] = useState(null);
+    const [configuringTool, setConfiguringTool] = useState(null);
+    const [toolConfig, setToolConfig] = useState('');
+    const [savingConfig, setSavingConfig] = useState(false);
 
     useEffect(() => {
         loadTools();
@@ -44,6 +47,34 @@ const Tools = () => {
             }
         } finally {
             setExecuting(null);
+        }
+    };
+
+    const handleConfigureTool = async (tool) => {
+        setConfiguringTool(tool);
+        setSavingConfig(false);
+        setToolConfig('');
+        try {
+            const config = await api.getToolConfig(tool.name);
+            setToolConfig(JSON.stringify(config, null, 2));
+        } catch (err) {
+            setToolConfig('{}');
+        }
+    };
+
+    const handleSaveConfig = async () => {
+        if (!configuringTool) return;
+        setSavingConfig(true);
+        try {
+            const configObj = JSON.parse(toolConfig);
+            await api.configureTool(configuringTool.name, configObj);
+            alert('Configuration saved!');
+            setConfiguringTool(null);
+            setToolConfig('');
+        } catch (err) {
+            alert('Failed to save config: ' + err.message);
+        } finally {
+            setSavingConfig(false);
         }
     };
 
@@ -105,7 +136,9 @@ const Tools = () => {
                     React.createElement('div', {
                         key: 'tools-grid',
                         className: 'grid grid-2'
-                    }, tools.map(tool => 
+                    }, tools
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(tool => 
                         React.createElement('div', {
                             key: tool.id || tool.name,
                             className: 'card tool-card'
@@ -131,7 +164,6 @@ const Tools = () => {
                                     key: 'description',
                                     style: { marginBottom: '16px', color: '#64748b' }
                                 }, tool.description || 'No description available'),
-                                
                                 tool.parameters_schema && React.createElement('div', {
                                     key: 'parameters',
                                     className: 'tool-parameters'
@@ -140,12 +172,64 @@ const Tools = () => {
                                     React.createElement('pre', {
                                         key: 'schema'
                                     }, JSON.stringify(tool.parameters_schema, null, 2))
+                                ]),
+                                React.createElement('div', { key: 'actions', style: { marginTop: '12px', display: 'flex', gap: '8px' } }, [
+                                    React.createElement('button', {
+                                        key: 'execute',
+                                        className: 'btn btn-primary',
+                                        disabled: executing === tool.name,
+                                        onClick: () => handleExecuteTool(tool)
+                                    }, executing === tool.name ? 'Running...' : 'Execute'),
+                                    React.createElement('button', {
+                                        key: 'configure',
+                                        className: 'btn btn-secondary',
+                                        onClick: () => handleConfigureTool(tool)
+                                    }, 'Configure')
                                 ])
                             ])
                         ])
                     ))
             )
-        ])
+        ]),
+        configuringTool && React.createElement('div', {
+            key: 'config-modal',
+            className: 'modal-overlay',
+            onClick: () => setConfiguringTool(null)
+        }, React.createElement('div', {
+            className: 'modal',
+            onClick: e => e.stopPropagation()
+        }, [
+            React.createElement('div', { className: 'modal-header', key: 'header' }, [
+                React.createElement('h3', { className: 'modal-title', key: 'title' }, `Configure Tool: ${configuringTool.name}`),
+                React.createElement('button', {
+                    className: 'modal-close',
+                    onClick: () => setConfiguringTool(null),
+                    key: 'close'
+                }, React.createElement('i', { className: 'fas fa-times' }))
+            ]),
+            React.createElement('div', { className: 'modal-content', key: 'content' }, [
+                React.createElement('p', { style: { color: '#64748b', marginBottom: '8px' }, key: 'desc' }, configuringTool.description),
+                React.createElement('textarea', {
+                    key: 'config-textarea',
+                    className: 'form-textarea',
+                    value: toolConfig,
+                    onChange: e => setToolConfig(e.target.value),
+                    style: { minHeight: '120px', fontFamily: 'monospace', fontSize: '13px', width: '100%' },
+                    placeholder: 'Enter tool configuration as JSON (e.g. credentials, API keys, etc.)'
+                }),
+                React.createElement('div', { style: { marginTop: '12px', display: 'flex', gap: '8px' }, key: 'actions' }, [
+                    React.createElement('button', {
+                        className: 'btn btn-primary',
+                        onClick: handleSaveConfig,
+                        disabled: savingConfig
+                    }, savingConfig ? 'Saving...' : 'Save'),
+                    React.createElement('button', {
+                        className: 'btn btn-secondary',
+                        onClick: () => setConfiguringTool(null)
+                    }, 'Cancel')
+                ])
+            ])
+        ]))
     ]);
 };
 

@@ -21,7 +21,8 @@ class WorkflowManager:
     async def execute_workflow(
         self, 
         workflow_name: str, 
-        context: Dict[str, Any] = {}
+        context: Dict[str, Any] = {},
+        agent_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute workflow with input schema support"""
     
@@ -33,6 +34,8 @@ class WorkflowManager:
             raise ValueError(f"Workflow {workflow_name} is disabled")
 
         logger.info(f"Starting workflow {workflow_name} with initial context: {context}")
+        if agent_name:
+            logger.info(f"Workflow execution associated with agent: {agent_name}")
     
         # NEW: Validate input against schema if present
         input_schema = workflow.get("input_schema")
@@ -67,7 +70,7 @@ class WorkflowManager:
                     result = self._parse_agent_result(result)
                 
                 elif resolved_step["type"] == "tool":
-                    result = await self._execute_tool_step(resolved_step, step_input_context)
+                    result = await self._execute_tool_step(resolved_step, step_input_context, agent_name)
                     logger.info(f"Tool result type: {type(result)}")
                     logger.info(f"Tool result: {result}")
                 else:
@@ -241,10 +244,11 @@ class WorkflowManager:
     async def _execute_tool_step(
         self, 
         step: Dict[str, Any], 
-        context: Dict[str, Any]
+        context: Dict[str, Any],
+        agent_name: Optional[str] = None
     ) -> Any:
         """Execute a tool step with enhanced debugging"""
-        tool_name = step["name"]
+        tool_name = step.get("tool") or step["name"]  # Use 'tool' field if available, fallback to 'name'
         parameters = step.get("parameters", {})
         
         logger.info(f"Tool step parameters before execution: {parameters}")
@@ -258,17 +262,18 @@ class WorkflowManager:
         
         logger.info(f"Executing tool {tool_name} with parameters: {parameters}")
         
-        return await self.tool_manager.execute_tool(tool_name, parameters)
+        return await self.tool_manager.execute_tool(tool_name, parameters, agent_name)
     
-    def _substitute_variables(self, text: str, context: Dict[str, Any]) -> str:
-        """Enhanced variable substitution with debugging"""
+    def _substitute_variables(self, text: str, context: Dict[str, Any], preserve_objects: bool = False) -> Any:
+        """Enhanced variable substitution with debugging and optional object preservation"""
         if not isinstance(text, str):
             return text
         
         logger.debug(f"Substituting variables in: '{text}'")
         logger.debug(f"Available context: {context}")
+        logger.debug(f"Preserve objects: {preserve_objects}")
         
-        # Pattern to match {{variable}} or {{object.property}}
+        # Pattern to match {{variable}} or {{object.property}} or {{array[0].property}}
         pattern = r'\{\{([^}]+)\}\}'
         
         def replace_var(match):
@@ -276,32 +281,95 @@ class WorkflowManager:
             logger.debug(f"Processing variable: {var_path}")
             
             try:
-                # Handle nested property access (e.g., parsed_purl.url)
-                if '.' in var_path:
-                    parts = var_path.split('.')
-                    value = context
+                # Handle nested property access with array indexing (e.g., attachments.vault_files[0].vault_filename)
+                if '.' in var_path or '[' in var_path:
+                    # Split by dots but preserve array indices
+                    parts = []
+                    current_part = ""
+                    in_bracket = False
                     
+                    for char in var_path:
+                        if char == '[':
+                            if current_part:
+                                parts.append(current_part)
+                                current_part = ""
+                            in_bracket = True
+                            current_part += char
+                        elif char == ']':
+                            current_part += char
+                            parts.append(current_part)
+                            current_part = ""
+                            in_bracket = False
+                        elif char == '.' and not in_bracket:
+                            if current_part:
+                                parts.append(current_part)
+                                current_part = ""
+                        else:
+                            current_part += char
+                    
+                    if current_part:
+                        parts.append(current_part)
+                    
+                    value = context
                     logger.debug(f"Navigating path: {parts}")
+                    
                     for i, part in enumerate(parts):
+                        part = str(part)
                         logger.debug(f"  Step {i}: accessing '{part}' in {type(value)}")
-                        if isinstance(value, dict) and part in value:
-                            value = value[part]
-                            logger.debug(f"  Found: {repr(value)}")
+                        # Handle array indexing
+                        if part.startswith('[') and part.endswith(']'):
+                            try:
+                                index = int(part[1:-1])  # Remove brackets and convert to int
+                                if isinstance(value, list) and 0 <= index < len(value):
+                                    value = value[index]
+                                    logger.debug(f"  Found array element at index {index}: {repr(value)}")
+                                else:
+                                    logger.error(f"Cannot access array index {index} in {type(value)}")
+                                    return match.group(0)  # Return original if not found
+                            except (ValueError, IndexError):
+                                logger.error(f"Invalid array index: {part}")
+                                return match.group(0)
+                            continue  # Always continue to next part after array indexing
+                        # Only use string keys for dicts, skip if part is an array index
+                        if not (part.startswith('[') and part.endswith(']')) and isinstance(value, dict):
+                            key = str(part)
+                            if key in value:
+                                value = value[key]
+                                logger.debug(f"  Found: {repr(value)}")
+                            else:
+                                logger.error(f"Cannot access {var_path}: '{key}' not found in {type(value)}")
+                                logger.error(f"Available keys: {list(value.keys())}")
+                                return match.group(0)  # Return original if not found
+                        elif isinstance(value, list):
+                            # If we hit an array but part is not a digit, try to find by key
+                            found = False
+                            for item in value:
+                                if isinstance(part, str) and not (part.startswith('[') and part.endswith(']')) and isinstance(item, dict) and part in item:
+                                    value = item[part]
+                                    found = True
+                                    break
+                            if not found:
+                                logger.error(f"Cannot access {var_path}: '{part}' not found in {type(value)}")
+                                return match.group(0)  # Return original if not found
                         else:
                             logger.error(f"Cannot access {var_path}: '{part}' not found in {type(value)}")
                             if isinstance(value, dict):
                                 logger.error(f"Available keys: {list(value.keys())}")
+                            elif isinstance(value, list):
+                                logger.error(f"Array length: {len(value)}")
                             return match.group(0)  # Return original if not found
                     
+                    # Always return string for re.sub compatibility
                     result = str(value) if not isinstance(value, str) else value
-                    logger.debug(f"Variable {var_path} resolved to: {repr(result)}")
+                    logger.debug(f"Variable {var_path} resolved to string: {repr(result)}")
                     return result
                 
                 # Simple variable access
                 elif var_path in context:
                     value = context[var_path]
+                    # Always return string for re.sub compatibility
                     result = str(value) if not isinstance(value, str) else value
-                    logger.debug(f"Variable {var_path} resolved to: {repr(result)}")
+                    logger.debug(f"Variable {var_path} resolved to string: {repr(result)}")
                     return result
                 else:
                     logger.error(f"Variable {var_path} not found in context")
@@ -312,6 +380,87 @@ class WorkflowManager:
                 logger.error(f"Error resolving variable {var_path}: {e}")
                 return match.group(0)  # Keep original on error
         
+        # Check if the entire text is a single variable reference
+        if re.match(pattern, text.strip()):
+            # Single variable reference - return the object directly if preserve_objects is True
+            match = re.match(pattern, text.strip())
+            if match:
+                var_path = match.group(1).strip()
+                
+                # Handle nested property access with array indexing
+                if '.' in var_path or '[' in var_path:
+                    parts = []
+                    current_part = ""
+                    in_bracket = False
+                    
+                    for char in var_path:
+                        if char == '[':
+                            if current_part:
+                                parts.append(current_part)
+                                current_part = ""
+                            in_bracket = True
+                            current_part += char
+                        elif char == ']':
+                            current_part += char
+                            parts.append(current_part)
+                            current_part = ""
+                            in_bracket = False
+                        elif char == '.' and not in_bracket:
+                            if current_part:
+                                parts.append(current_part)
+                                current_part = ""
+                        else:
+                            current_part += char
+                    
+                    if current_part:
+                        parts.append(current_part)
+                    
+                    value = context
+                    for part in parts:
+                        part = str(part)
+                        # Handle array indexing
+                        if part.startswith('[') and part.endswith(']'):
+                            try:
+                                index = int(part[1:-1])
+                                if isinstance(value, list) and 0 <= index < len(value):
+                                    value = value[index]
+                                else:
+                                    return text  # Return original if not found
+                            except (ValueError, IndexError):
+                                return text
+                            continue  # Always continue to next part after array indexing
+                        # Only use string keys for dicts, skip if part is an array index
+                        if not (part.startswith('[') and part.endswith(']')) and isinstance(value, dict):
+                            key = str(part)
+                            if key in value:
+                                value = value[key]
+                            else:
+                                return text  # Return original if not found
+                        elif isinstance(value, list):
+                            found = False
+                            for item in value:
+                                if isinstance(part, str) and not (part.startswith('[') and part.endswith(']')) and isinstance(item, dict) and part in item:
+                                    value = item[part]
+                                    found = True
+                                    break
+                            if not found:
+                                return text  # Return original if not found
+                        else:
+                            return text  # Return original if not found
+                elif var_path in context:
+                    value = context[var_path]
+                else:
+                    return text  # Return original if not found
+                
+                if preserve_objects:
+                    logger.debug(f"Single variable {var_path} resolved to object: {repr(value)}")
+                    return value
+                else:
+                    result = str(value) if not isinstance(value, str) else value
+                    logger.debug(f"Single variable {var_path} resolved to string: {repr(result)}")
+                    return result
+        
+        # Multiple variables or mixed content - use regex substitution (always returns string)
         result = re.sub(pattern, replace_var, text)
         logger.debug(f"Final substitution result: '{result}'")
         return result
@@ -325,13 +474,17 @@ class WorkflowManager:
         logger.debug(f"Resolving variables in step: {step}")
         resolved_step = {}
         
+        # Check if this step should preserve objects
+        preserve_objects = step.get("preserve_objects", False)
+        logger.debug(f"Step preserve_objects flag: {preserve_objects}")
+        
         for key, value in step.items():
             if isinstance(value, str):
-                resolved_step[key] = self._substitute_variables(value, context)
+                resolved_step[key] = self._substitute_variables(value, context, preserve_objects)
             elif isinstance(value, dict):
-                resolved_step[key] = self._resolve_dict_variables(value, context)
+                resolved_step[key] = self._resolve_dict_variables(value, context, preserve_objects)
             elif isinstance(value, list):
-                resolved_step[key] = self._resolve_list_variables(value, context)
+                resolved_step[key] = self._resolve_list_variables(value, context, preserve_objects)
             else:
                 resolved_step[key] = value
         
@@ -341,18 +494,19 @@ class WorkflowManager:
     def _resolve_dict_variables(
         self, 
         data: Dict[str, Any], 
-        context: Dict[str, Any]
+        context: Dict[str, Any],
+        preserve_objects: bool = False
     ) -> Dict[str, Any]:
         """Recursively resolve variables in dictionary"""
         resolved = {}
         
         for key, value in data.items():
             if isinstance(value, str):
-                resolved[key] = self._substitute_variables(value, context)
+                resolved[key] = self._substitute_variables(value, context, preserve_objects)
             elif isinstance(value, dict):
-                resolved[key] = self._resolve_dict_variables(value, context)
+                resolved[key] = self._resolve_dict_variables(value, context, preserve_objects)
             elif isinstance(value, list):
-                resolved[key] = self._resolve_list_variables(value, context)
+                resolved[key] = self._resolve_list_variables(value, context, preserve_objects)
             else:
                 resolved[key] = value
         
@@ -361,18 +515,19 @@ class WorkflowManager:
     def _resolve_list_variables(
         self, 
         data: List[Any], 
-        context: Dict[str, Any]
+        context: Dict[str, Any],
+        preserve_objects: bool = False
     ) -> List[Any]:
         """Recursively resolve variables in list"""
         resolved = []
         
         for item in data:
             if isinstance(item, str):
-                resolved.append(self._substitute_variables(item, context))
+                resolved.append(self._substitute_variables(item, context, preserve_objects))
             elif isinstance(item, dict):
-                resolved.append(self._resolve_dict_variables(item, context))
+                resolved.append(self._resolve_dict_variables(item, context, preserve_objects))
             elif isinstance(item, list):
-                resolved.append(self._resolve_list_variables(item, context))
+                resolved.append(self._resolve_list_variables(item, context, preserve_objects))
             else:
                 resolved.append(item)
         
@@ -429,7 +584,7 @@ class WorkflowManager:
         
         # Validate tool steps
         elif step_type == "tool":
-            tool_name = step["name"]
+            tool_name = step.get("tool") or step["name"]  # Use 'tool' field if available, fallback to 'name'
             tool = self.memory_manager.get_tool(tool_name)
             if not tool:
                 errors.append(f"Step {step_number}: Tool '{tool_name}' not found")
@@ -477,6 +632,10 @@ class WorkflowManager:
                     value = self._extract_regex_safe(json.dumps(data), query, default_val)
                 elif ext_type == "literal":
                     value = query
+                elif ext_type == "join_field":
+                    field = extraction.get("field", "")
+                    separator = extraction.get("separator", ",")
+                    value = self._extract_join_field(data, query, field, separator, default_val)
                 else:
                     value = default_val
                 
@@ -621,3 +780,52 @@ class WorkflowManager:
                 return str(value)
         except Exception:
             return str(value)
+    
+    def _extract_join_field(self, data: Any, array_path: str, field: str, separator: str, default: str) -> str:
+        """Extract an array at array_path, join all values of field with separator"""
+        try:
+            # Get the actual data object, not a string representation
+            current = data
+            if not array_path or not isinstance(current, dict):
+                return default
+            
+            parts = str(array_path).split('.')
+            
+            for part in parts:
+                if not part:
+                    continue
+                
+                # Handle array indices
+                if part.isdigit():
+                    index = int(part)
+                    if isinstance(current, list) and 0 <= index < len(current):
+                        current = current[index]
+                    else:
+                        return default
+                elif isinstance(current, dict):
+                    current = current.get(part)
+                elif isinstance(current, list):
+                    # If we hit an array but part is not a digit, try to find by key
+                    found = False
+                    for item in current:
+                        if isinstance(item, dict) and part in item:
+                            current = item[part]
+                            found = True
+                            break
+                    if not found:
+                        return default
+                else:
+                    return default
+                    
+                if current is None:
+                    return default
+            
+            # Now current should be the array we want to process
+            if not isinstance(current, list):
+                return default
+            
+            values = [str(item.get(field, "")) for item in current if isinstance(item, dict) and field in item]
+            return separator.join(values)
+        except Exception as e:
+            logger.warning(f"join_field extraction failed: {e}")
+            return default

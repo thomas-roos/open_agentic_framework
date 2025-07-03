@@ -9,6 +9,7 @@ import aiohttp
 import json
 import logging
 from typing import Dict, Any, Optional
+import asyncio
 
 from .base_tool import BaseTool
 
@@ -177,7 +178,7 @@ class HttpClientTool(BaseTool):
                     
                     return result
                     
-        except aiohttp.ClientTimeout:
+        except asyncio.TimeoutError:
             error_msg = f"HTTP request to {url} timed out after {timeout} seconds"
             logger.error(error_msg)
             raise Exception(error_msg)

@@ -45,7 +45,7 @@ class DataExtractorTool(BaseTool):
                             },
                             "type": {
                                 "type": "string",
-                                "enum": ["path", "regex", "literal", "find"],
+                                "enum": ["path", "regex", "literal", "find", "join_field"],
                                 "description": "Extraction type"
                             },
                             "query": {
@@ -71,6 +71,15 @@ class DataExtractorTool(BaseTool):
                                     "match_value": {"type": "string"},
                                     "extract_field": {"type": "string"}
                                 }
+                            },
+                            "field": {
+                                "type": "string",
+                                "description": "Field to join (for join_field type)"
+                            },
+                            "separator": {
+                                "type": "string",
+                                "description": "Separator for join_field type",
+                                "default": ","
                             }
                         },
                         "required": ["name", "type", "query"]
@@ -99,7 +108,9 @@ class DataExtractorTool(BaseTool):
                             "query": str(item.get("query", "")),
                             "default": str(item.get("default", "")),
                             "format": str(item.get("format", "text")),
-                            "find_criteria": item.get("find_criteria", {})
+                            "find_criteria": item.get("find_criteria", {}),
+                            "field": item.get("field", None),
+                            "separator": item.get("separator", ",")
                         }
                         safe_extractions.append(safe_extraction)
             
@@ -124,6 +135,8 @@ class DataExtractorTool(BaseTool):
                     default_val = extraction["default"]
                     format_type = extraction["format"]
                     find_criteria = extraction["find_criteria"]
+                    field = extraction.get("field", None)
+                    separator = extraction.get("separator", ",")
                     
                     # Extract value based on type
                     if ext_type == "path":
@@ -136,6 +149,8 @@ class DataExtractorTool(BaseTool):
                         value = self._extract_regex_safe(source_data_str, query, default_val)
                     elif ext_type == "literal":
                         value = query
+                    elif ext_type == "join_field":
+                        value = self._extract_join_field(source_obj, query, field, separator, default_val)
                     else:
                         value = default_val
                     
@@ -318,7 +333,7 @@ class DataExtractorTool(BaseTool):
                 return default
             
             # Get the array
-            array_data = self._extract_path_safe(data, array_path, None)
+            array_data = self._extract_path_safe(data, array_path, "")
             if array_data == default:  # Failed to get array
                 return default
             
@@ -392,3 +407,52 @@ class DataExtractorTool(BaseTool):
                 return str(value)
         except Exception:
             return str(value)
+    
+    def _extract_join_field(self, data: Any, array_path: str, field: str, separator: str, default: str) -> str:
+        """Extract an array at array_path, join all values of field with separator"""
+        try:
+            # Get the actual data object, not a string representation
+            current = data
+            if not array_path or not isinstance(current, dict):
+                return default
+            
+            parts = str(array_path).split('.')
+            
+            for part in parts:
+                if not part:
+                    continue
+                
+                # Handle array indices
+                if part.isdigit():
+                    index = int(part)
+                    if isinstance(current, list) and 0 <= index < len(current):
+                        current = current[index]
+                    else:
+                        return default
+                elif isinstance(current, dict):
+                    current = current.get(part)
+                elif isinstance(current, list):
+                    # If we hit an array but part is not a digit, try to find by key
+                    found = False
+                    for item in current:
+                        if isinstance(item, dict) and part in item:
+                            current = item[part]
+                            found = True
+                            break
+                    if not found:
+                        return default
+                else:
+                    return default
+                    
+                if current is None:
+                    return default
+            
+            # Now current should be the array we want to process
+            if not isinstance(current, list):
+                return default
+            
+            values = [str(item.get(field, "")) for item in current if isinstance(item, dict) and field in item]
+            return separator.join(values)
+        except Exception as e:
+            logger.warning(f"join_field extraction failed: {e}")
+            return default

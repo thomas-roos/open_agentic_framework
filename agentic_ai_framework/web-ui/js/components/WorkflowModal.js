@@ -1,7 +1,7 @@
 // js/components/WorkflowModal.js - Complete Enhanced Workflow Modal with Standardized Parameter System
 
 const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) => {
-    const { useState } = React;
+    const { useState, useEffect } = React;
 
     const [formData, setFormData] = useState({
         name: workflow?.name || '',
@@ -17,6 +17,24 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
     });
     const [saving, setSaving] = useState(false);
     const [showAdvancedOutputSpec, setShowAdvancedOutputSpec] = useState(false);
+
+    // Update form data when workflow prop changes
+    useEffect(() => {
+        if (workflow) {
+            setFormData({
+                name: workflow.name || '',
+                description: workflow.description || '',
+                input_schema: workflow.input_schema || {
+                    type: 'object',
+                    properties: {},
+                    required: []
+                },
+                steps: workflow.steps || [],
+                enabled: workflow.enabled !== false,
+                output_spec: workflow.output_spec || { extractions: [] }
+            });
+        }
+    }, [workflow]);
 
     // Standardized Parameter Renderer
     const ParameterRenderer = {
@@ -49,6 +67,90 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
         // Simple parameters: string, number, boolean, simple arrays/objects
         renderSimpleParameter(paramName, paramSchema, currentValue, updateParameter, isRequired) {
             const commonInputStyle = { fontSize: '12px', width: '100%' };
+            
+            // Special handling for source_data parameter (should be JSON)
+            if (paramName === 'source_data') {
+                return React.createElement('div', { key: 'source-data-input' }, [
+                    React.createElement('textarea', {
+                        key: 'source-data-textarea',
+                        className: 'form-textarea',
+                        value: currentValue || '',
+                        onChange: e => updateParameter(e.target.value || undefined),
+                        placeholder: paramSchema.description || 'Enter JSON data or variable reference like {{previous_step.output}}',
+                        required: isRequired,
+                        style: { fontSize: '11px', fontFamily: 'monospace', minHeight: '80px' }
+                    }),
+                    React.createElement('small', {
+                        key: 'help',
+                        style: { color: '#6b7280', fontSize: '10px' }
+                    }, 'Enter JSON data or use {{variable}} syntax to reference previous step outputs')
+                ]);
+            }
+            
+            // Special handling for email_data parameter (should be email object reference)
+            if (paramName === 'email_data') {
+                return React.createElement('div', { key: 'email-data-input' }, [
+                    React.createElement('textarea', {
+                        key: 'email-data-textarea',
+                        className: 'form-textarea',
+                        value: currentValue || '',
+                        onChange: e => updateParameter(e.target.value || undefined),
+                        placeholder: paramSchema.description || 'Enter email data object or variable reference like {{email_checker.email}}',
+                        required: isRequired,
+                        style: { fontSize: '11px', fontFamily: 'monospace', minHeight: '80px' }
+                    }),
+                    React.createElement('small', {
+                        key: 'help',
+                        style: { color: '#6b7280', fontSize: '10px' }
+                    }, 'Enter email data object or use {{variable}} syntax to reference previous step outputs')
+                ]);
+            }
+            
+            // Special handling for attachment_filenames parameter (should be array of filenames)
+            if (paramName === 'attachment_filenames') {
+                return React.createElement('div', { key: 'attachment-filenames-input' }, [
+                    React.createElement('textarea', {
+                        key: 'attachment-filenames-textarea',
+                        className: 'form-textarea',
+                        value: currentValue ? JSON.stringify(currentValue, null, 2) : '[]',
+                        onChange: e => {
+                            try {
+                                const parsed = JSON.parse(e.target.value || '[]');
+                                updateParameter(parsed);
+                            } catch (err) {
+                                // Keep text for validation later
+                            }
+                        },
+                        placeholder: paramSchema.description || 'Enter array of filenames like ["file1.json", "file2.pdf"] or leave empty for all',
+                        required: isRequired,
+                        style: { fontSize: '11px', fontFamily: 'monospace', minHeight: '60px' }
+                    }),
+                    React.createElement('small', {
+                        key: 'help',
+                        style: { color: '#6b7280', fontSize: '10px' }
+                    }, 'Enter JSON array of filenames or leave empty to download all attachments')
+                ]);
+            }
+            
+            // Special handling for download_path parameter (should be directory path)
+            if (paramName === 'download_path') {
+                return React.createElement('div', { key: 'download-path-input' }, [
+                    React.createElement('input', {
+                        key: 'download-path-input-field',
+                        className: 'form-input',
+                        type: 'text',
+                        value: currentValue || '',
+                        onChange: e => updateParameter(e.target.value || undefined),
+                        placeholder: paramSchema.description || 'Enter custom download path or leave empty for temp directory',
+                        required: isRequired,
+                        style: commonInputStyle
+                    }),
+                    React.createElement('small', {
+                        key: 'help',
+                        style: { color: '#6b7280', fontSize: '10px' }
+                    }, 'Enter custom download directory path or leave empty to use temporary directory')
+                ]);
+            }
             
             switch (paramSchema.type) {
                 case 'boolean':
@@ -240,8 +342,14 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
 
             const addItem = () => {
                 const newItem = {};
-                // Set default values
-                if (itemSchema.properties) {
+                // Set default values for extractions
+                if (paramName === 'extractions') {
+                    newItem.name = 'extraction_' + (items.length + 1);
+                    newItem.type = 'path';
+                    newItem.query = '';
+                    newItem.default = '';
+                    newItem.format = 'text';
+                } else if (itemSchema.properties) {
                     Object.entries(itemSchema.properties).forEach(([propName, propSchema]) => {
                         if (propSchema.default !== undefined) {
                             newItem[propName] = propSchema.default;
@@ -354,7 +462,7 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                     ])
                 )),
 
-                // JSON fallback
+                // JSON fallback with better styling
                 React.createElement('details', {
                     key: 'json-fallback',
                     style: { marginTop: '8px' }
@@ -465,7 +573,10 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
         if (step.type !== 'tool' || !step.name) return null;
 
         const tool = tools.find(t => t.name === step.name);
-        if (!tool?.parameters_schema?.properties) return null;
+        if (!tool?.parameters_schema?.properties) {
+            console.warn(`Tool ${step.name} not found or missing parameters_schema:`, tool);
+            return null;
+        }
 
         const properties = tool.parameters_schema.properties;
         const required = tool.parameters_schema.required || [];
@@ -546,7 +657,9 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                     query: '',
                     default: '',
                     format: 'text',
-                    find_criteria: {}
+                    find_criteria: {},
+                    field: '',
+                    separator: ','
                 }]
             }
         }));
@@ -945,12 +1058,14 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                                     key: 'placeholder',
                                                     value: '' 
                                                 }, `Choose ${step.type}`),
-                                                ...(step.type === 'agent' ? agents : tools).map(item => 
-                                                    React.createElement('option', {
-                                                        key: item.name,
-                                                        value: item.name
-                                                    }, item.name)
-                                                )
+                                                ...(step.type === 'agent' ? agents : tools)
+                                                    .sort((a, b) => a.name.localeCompare(b.name))
+                                                    .map(item => 
+                                                        React.createElement('option', {
+                                                            key: item.name,
+                                                            value: item.name
+                                                        }, item.name)
+                                                    )
                                             ])
                                         ]),
 
@@ -1012,6 +1127,32 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                                 }),
                                                 React.createElement('span', { key: 'text' }, 'Use previous step output')
                                             ])
+                                        ])
+                                    ]),
+
+                                    // Preserve Objects configuration for tool steps
+                                    step.type === 'tool' && React.createElement('div', {
+                                        key: 'preserve-objects',
+                                        className: 'form-group'
+                                    }, [
+                                        React.createElement('label', {
+                                            key: 'label',
+                                            className: 'form-label'
+                                        }, 'Preserve Objects'),
+                                        React.createElement('div', {
+                                            key: 'checkbox-container',
+                                            style: { display: 'flex', alignItems: 'center', gap: '8px' }
+                                        }, [
+                                            React.createElement('input', {
+                                                key: 'checkbox',
+                                                type: 'checkbox',
+                                                checked: step.preserve_objects || false,
+                                                onChange: e => updateStep(index, { preserve_objects: e.target.checked })
+                                            }),
+                                            React.createElement('span', { 
+                                                key: 'text',
+                                                style: { fontSize: '12px', color: '#6b7280' }
+                                            }, 'Keep complex objects as objects instead of converting to strings')
                                         ])
                                     ]),
 
@@ -1109,7 +1250,8 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                         React.createElement('option', { key: 'path', value: 'path' }, 'Path'),
                                         React.createElement('option', { key: 'regex', value: 'regex' }, 'Regex'),
                                         React.createElement('option', { key: 'literal', value: 'literal' }, 'Literal'),
-                                        React.createElement('option', { key: 'find', value: 'find' }, 'Find')
+                                        React.createElement('option', { key: 'find', value: 'find' }, 'Find'),
+                                        React.createElement('option', { key: 'join_field', value: 'join_field' }, 'Join Field')
                                     ]),
                                     React.createElement('input', {
                                         key: 'query',
@@ -1117,7 +1259,25 @@ const WorkflowModal = ({ workflow, agents = [], tools = [], onClose, onSave }) =
                                         type: 'text',
                                         value: ex.query,
                                         onChange: e => handleUpdateExtraction(idx, { query: e.target.value }),
-                                        placeholder: 'Query (path, regex, or value)',
+                                        placeholder: ex.type === 'join_field' ? 'Array path (e.g., components)' : 'Query (path, regex, or value)',
+                                        style: { fontSize: '12px' }
+                                    }),
+                                    ex.type === 'join_field' && React.createElement('input', {
+                                        key: 'field',
+                                        className: 'form-input',
+                                        type: 'text',
+                                        value: ex.field || '',
+                                        onChange: e => handleUpdateExtraction(idx, { field: e.target.value }),
+                                        placeholder: 'Field to join (e.g., purl)',
+                                        style: { fontSize: '12px' }
+                                    }),
+                                    ex.type === 'join_field' && React.createElement('input', {
+                                        key: 'separator',
+                                        className: 'form-input',
+                                        type: 'text',
+                                        value: ex.separator || ',',
+                                        onChange: e => handleUpdateExtraction(idx, { separator: e.target.value }),
+                                        placeholder: 'Separator (default: ,)',
                                         style: { fontSize: '12px' }
                                     }),
                                     React.createElement('input', {
