@@ -106,17 +106,14 @@
         },
         {
           "type": "tool",
-          "name": "email_parser",
+          "name": "email_data_converter",
           "tool": null,
           "task": null,
           "parameters": {
-            "email_data": "{{converted_email_data.result}}",
-            "parse_headers": true,
-            "parse_body": false,
-            "parse_attachments": false,
-            "extract_emails": true
+            "email_data": "{{email_content}}",
+            "action": "extract_sender"
           },
-          "context_key": "parsed_email_info",
+          "context_key": "sender_info",
           "use_previous_output": false,
           "preserve_objects": false
         },
@@ -193,8 +190,8 @@
           "tool": null,
           "task": null,
           "parameters": {
-            "to": "{{parsed_email_info.parsed_email.recipients.from[0].email}}",
-            "subject": "Re: {{parsed_email_info.parsed_email.headers.subject}} - SBOM Analysis Complete",
+            "to": "{{sender_info.result}}",
+            "subject": "Re: test SBOM - SBOM Analysis Complete",
             "body": "Your SBOM analysis has been completed successfully.\n\nPlease find the legal notices and license assessment attached.\n\nWorkflow Results:\n{{legal_notices}}\n\nThis analysis was performed automatically by the Agentic AI Framework.\n\nBest regards,\nSBOM Analysis System",
             "html": false,
             "attachments": [
@@ -683,13 +680,13 @@
       "configuration": {
         "pop3_host": "pop.gmail.com",
         "pop3_port": 995,
-        "pop3_username": "getanospo@gmail.com",
-        "pop3_password": "fhxqtokpxiwmieoj",
+        "pop3_username": "your-email@gmail.com",
+        "pop3_password": "<EMAIL_PASSWORD>",
         "pop3_use_ssl": true,
         "imap_host": "imap.gmail.com",
         "imap_port": 993,
-        "imap_username": "getanospo@gmail.com",
-        "imap_password": "fhxqtokpxiwmieoj",
+        "imap_username": "your-email@gmail.com",
+        "imap_password": "<EMAIL_PASSWORD>",
         "imap_use_ssl": true
       },
       "created_at": "2025-06-25 22:52:38.998242",
@@ -891,11 +888,11 @@
       "configuration": {
         "smtp_host": "smtp.gmail.com",
         "smtp_port": 587,
-        "smtp_username": "getanospo@gmail.com",
-        "smtp_password": "fhxqtokpxiwmieoj",
+        "smtp_username": "your-email@gmail.com",
+        "smtp_password": "<EMAIL_PASSWORD>",
         "smtp_use_tls": true,
         "smtp_use_ssl": false,
-        "from_email": "getanospo@gmail.com"
+        "from_email": "your-email@gmail.com"
       },
       "created_at": "2025-06-25 22:52:39.015923",
       "updated_at": "2025-06-25 22:52:39.015923"
